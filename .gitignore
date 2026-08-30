@@ -1,0 +1,51 @@
+# Virtual Environment
+ml_env/
+env/
+venv/
+.venv/
+
+# Large Model Weights (Reproducible via python train_gpu.py / train.py / convert_tflite.py)
+*.pth
+*.keras
+*.h5
+*.tflite
+*.pt
+*.onnx
+
+# Generated / Augmented Datasets (Reproducible via prepare_dataset.py & augment_data.py)
+dataset/
+
+# Raw Image Files (Keeps folder structure via .gitkeep)
+CLASS A/*
+!CLASS A/.gitkeep
+CLASS B/*
+!CLASS B/.gitkeep
+CLASS C/*
+!CLASS C/.gitkeep
+CLASS D/*
+!CLASS D/.gitkeep
+CLASS E/*
+!CLASS E/.gitkeep
+
+# Temporary / Output Screenshots & Results
+screenshot_*.jpg
+*_result.jpg
+*.log
+error.log
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
