@@ -1,0 +1,26 @@
+# Buyo Leaf Classifier - Raspberry Pi Optimized Dependencies
+# ============================================================
+# Lightweight versions optimized for ARM architecture
+
+# PyTorch CPU-only (smaller download for Raspberry Pi)
+# Note: Install PyTorch first using official wheel for ARM
+# Visit: https://pytorch.org/get-started/locally/
+
+# Computer Vision (headless version for Raspberry Pi without GUI)
+opencv-python-headless>=4.8.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# Numerical Computing
+numpy>=1.24.0
+
+# Robotic Arm Control (Optional - only needed if hardware is connected)
+# Uncomment these lines if using robotic arm hardware:
+# RPi.GPIO>=0.7.1
+# adafruit-circuitpython-servokit>=1.3.0
+# adafruit-circuitpython-pca9685>=3.4.0
+
+# GUI Support (only if using display)
+# Uncomment if running with monitor attached:
+# opencv-python>=4.8.0

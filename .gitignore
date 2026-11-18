@@ -1,0 +1,47 @@
+# Virtual Environment
+ml_env/
+env/
+venv/
+.venv/
+
+# Large Model Weights - Excluded (too large for git)
+*.pth
+*.keras
+*.h5
+*.tflite
+*.pt
+*.onnx
+
+# Dataset images (too large for git)
+CLASS A/
+CLASS B/
+CLASS C/
+CLASS D/
+CLASS E/
+dataset/
+
+# Note: CLASS A-E folders and dataset/ are now tracked in git
+# (Previously excluded to save space, now included as requested)
+
+# Temporary / Output Screenshots & Results
+screenshot_*.jpg
+*_result.jpg
+*.log
+error.log
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
