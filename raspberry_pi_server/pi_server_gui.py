@@ -26,8 +26,11 @@ import queue
 try:
     from picamera2 import Picamera2
     PICAMERA2_AVAILABLE = True
-except ImportError:
+    print("✓ Picamera2 library found")
+except ImportError as e:
     PICAMERA2_AVAILABLE = False
+    print(f"✗ Picamera2 not available: {e}")
+    print("  Install with: sudo apt install python3-picamera2")
 
 # Try to import robotic arm libraries
 try:
@@ -97,60 +100,99 @@ def init_camera():
     """Initialize camera (picamera2 or USB webcam)"""
     global camera
     
-    print("🔍 Detecting available cameras...")
+    print("\n" + "="*70)
+    print("CAMERA INITIALIZATION")
+    print("="*70)
+    
+    print("\n🔍 Step 1: Checking Picamera2 availability...")
+    print(f"   PICAMERA2_AVAILABLE = {PICAMERA2_AVAILABLE}")
+    
+    if not PICAMERA2_AVAILABLE:
+        print("\n   ⚠️  Picamera2 is NOT available in this Python environment")
+        print("   Reason: Import failed (see error above)")
+        print("\n   SOLUTIONS:")
+        print("   1. If using venv, recreate it with system packages access:")
+        print("      rm -rf venv")
+        print("      python3 -m venv venv --system-site-packages")
+        print("      source venv/bin/activate")
+        print("      pip install -r raspberry_pi_server/requirements.txt")
+        print("\n   2. Or install picamera2 in venv:")
+        print("      source venv/bin/activate")
+        print("      sudo apt install python3-picamera2")
+        print("\n   3. Or run the quick fix script:")
+        print("      bash fix_picamera2.sh")
+        print("\n   📝 See CAMERA_FIX_INSTRUCTIONS.txt for detailed help")
+    
+    print("\n🔍 Step 2: Detecting available cameras...")
     available_cameras = detect_available_cameras()
     
     if available_cameras:
-        print(f"📸 Found {len(available_cameras)} camera(s):")
-        for cam in available_cameras:
-            print(f"   - {cam}")
+        print(f"\n✓ Found {len(available_cameras)} camera(s):")
+        for i, cam in enumerate(available_cameras, 1):
+            print(f"   {i}. {cam}")
     else:
-        print("⚠️  No cameras detected!")
+        print("\n✗ No cameras detected!")
+        print("   - Check camera cable connection")
+        print("   - Run: libcamera-hello (to test camera directly)")
+        print("   - Enable camera: sudo raspi-config → Interface Options → Camera")
         return None
     
     # Try Picamera2 first (Pi Camera Module)
     if PICAMERA2_AVAILABLE:
+        print("\n🔄 Step 3: Trying Picamera2 initialization...")
         try:
-            print("🔄 Initializing Picamera2...")
             from picamera2 import Picamera2
             
             # Get available cameras
             cameras = Picamera2.global_camera_info()
             if not cameras:
-                print("✗ No Picamera2 cameras found!")
+                print("   ✗ Picamera2.global_camera_info() returned empty list")
             else:
-                print(f"📸 Found {len(cameras)} Pi Camera(s)")
+                print(f"\n   📸 Picamera2 detected {len(cameras)} camera(s):")
                 for i, cam_info in enumerate(cameras):
-                    print(f"   Camera {i}: {cam_info}")
+                    model = cam_info.get('Model', 'Unknown')
+                    location = cam_info.get('Location', 'Unknown')
+                    print(f"      Camera {i}: {model} at {location}")
                 
                 # Initialize first camera
+                print(f"\n   🔧 Initializing camera 0...")
                 camera = Picamera2()
                 cam_model = cameras[0].get('Model', 'Unknown')
                 
                 # Configure for streaming
+                print(f"   🔧 Configuring camera for {CAMERA_WIDTH}x{CAMERA_HEIGHT} RGB888...")
                 config = camera.create_video_configuration(
                     main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
                 )
                 camera.configure(config)
+                
+                print(f"   🔧 Starting camera...")
                 camera.start()
                 
-                print("⏳ Waiting for camera to stabilize...")
+                print(f"   ⏳ Waiting 2 seconds for camera to stabilize...")
                 time.sleep(2)
                 
                 # Test capture
+                print(f"   🔧 Testing capture...")
                 test_frame = camera.capture_array()
+                
                 if test_frame is not None and test_frame.size > 0:
-                    print(f"✓ Camera ready: {test_frame.shape}")
+                    print(f"\n   ✅ SUCCESS! Camera initialized: {test_frame.shape}")
+                    print(f"   📷 Camera type: Pi Camera ({cam_model})")
+                    print("="*70 + "\n")
                     return f"Pi Camera ({cam_model})"
                 else:
-                    print("✗ Camera test capture failed")
+                    print(f"\n   ✗ Test capture returned empty frame")
                     camera.stop()
                     camera.close()
                     camera = None
         except Exception as e:
-            print(f"✗ Picamera2 initialization failed: {e}")
+            print(f"\n   ✗ Picamera2 initialization FAILED")
+            print(f"   Error: {e}")
             import traceback
+            print("\n   Full traceback:")
             traceback.print_exc()
+            
             if camera:
                 try:
                     camera.stop()
@@ -158,30 +200,51 @@ def init_camera():
                 except:
                     pass
             camera = None
+    else:
+        print("\n⏭️  Step 3: Skipping Picamera2 (not available)")
     
     # Fallback to USB webcam
-    print("🔄 Trying USB webcam...")
+    print("\n🔄 Step 4: Trying USB webcam fallback...")
     try:
+        print("   🔧 Opening /dev/video0 with cv2.VideoCapture...")
         camera = cv2.VideoCapture(0)
+        
         if not camera.isOpened():
-            print("✗ Could not open /dev/video0")
+            print("   ✗ Could not open /dev/video0")
+            print("      cv2.VideoCapture(0).isOpened() = False")
             return None
-            
+        
+        print("   🔧 Setting resolution to {CAMERA_WIDTH}x{CAMERA_HEIGHT}...")
         camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+        
+        print("   ⏳ Waiting 1 second for camera to initialize...")
         time.sleep(1)
         
         # Test capture
+        print("   🔧 Testing capture...")
         ret, test_frame = camera.read()
+        
         if ret and test_frame is not None:
-            print(f"✓ USB webcam ready: {test_frame.shape}")
+            print(f"\n   ✅ USB webcam initialized: {test_frame.shape}")
+            print("="*70 + "\n")
             return "USB Webcam"
         else:
-            print("✗ Could not capture from USB webcam")
+            print(f"\n   ✗ Test capture failed")
+            print(f"      ret={ret}, frame={'None' if test_frame is None else test_frame.shape}")
+            camera.release()
+            camera = None
             return None
     except Exception as e:
-        print(f"✗ USB webcam failed: {e}")
+        print(f"\n   ✗ USB webcam initialization FAILED")
+        print(f"   Error: {e}")
+        import traceback
+        traceback.print_exc()
         return None
+    
+    print("\n✗ All camera initialization methods failed")
+    print("="*70 + "\n")
+    return None
 
 def get_frame():
     """Capture frame from camera"""
@@ -342,6 +405,9 @@ class PiServerGUI:
         self.server_running = False
         self.preview_running = False
         self.camera_type = None
+        
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         self.setup_ui()
         self.start_command_logger()
@@ -580,6 +646,15 @@ class PiServerGUI:
             update_log()
         else:
             self.root.after(0, update_log)
+    
+    def on_closing(self):
+        """Handle window close event"""
+        if self.server_running:
+            self.log("Shutting down server before closing...")
+            self.stop_server()
+            self.root.after(500, self.root.destroy)  # Give time to cleanup
+        else:
+            self.root.destroy()
 
 # ============================================================================
 # MAIN

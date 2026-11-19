@@ -82,15 +82,15 @@ sudo raspi-config nonint do_i2c 0  # Enable I2C
 sudo raspi-config nonint do_camera 0  # Enable Camera
 echo -e "${GREEN}✓ I2C and Camera enabled${NC}"
 
-# Create virtual environment
+# Create virtual environment with system packages access
 echo ""
 echo -e "${BLUE}→ Creating virtual environment...${NC}"
 if [ -d "venv" ]; then
     echo -e "${YELLOW}⚠ venv exists, removing...${NC}"
     rm -rf venv
 fi
-python3 -m venv venv
-echo -e "${GREEN}✓ Virtual environment created${NC}"
+python3 -m venv venv --system-site-packages
+echo -e "${GREEN}✓ Virtual environment created (with system packages access)${NC}"
 
 # Activate venv
 source venv/bin/activate
