@@ -61,32 +61,100 @@ camera_lock = threading.Lock()
 command_queue = queue.Queue()
 kit = None
 
+def detect_available_cameras():
+    """Detect which cameras are available"""
+    available = []
+    
+    # Check for Picamera2 (libcamera)
+    if PICAMERA2_AVAILABLE:
+        try:
+            test_cam = Picamera2()
+            cameras = test_cam.global_camera_info()
+            if cameras:
+                for i, cam_info in enumerate(cameras):
+                    model = cam_info.get('Model', 'Unknown')
+                    available.append(f"Picamera2 #{i}: {model}")
+            test_cam.close()
+        except Exception as e:
+            print(f"Picamera2 detection failed: {e}")
+    
+    # Check for USB webcams
+    for i in range(4):  # Check first 4 video devices
+        try:
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                available.append(f"USB Webcam /dev/video{i}")
+                cap.release()
+        except:
+            pass
+    
+    return available
+
 def init_camera():
     """Initialize camera (picamera2 or USB webcam)"""
     global camera
     
+    print("🔍 Detecting available cameras...")
+    available_cameras = detect_available_cameras()
+    
+    if available_cameras:
+        print(f"📸 Found {len(available_cameras)} camera(s):")
+        for cam in available_cameras:
+            print(f"   - {cam}")
+    else:
+        print("⚠️  No cameras detected!")
+        return None
+    
+    # Try Picamera2 first (Pi Camera Module)
     if PICAMERA2_AVAILABLE:
         try:
+            print("🔄 Initializing Picamera2...")
             camera = Picamera2()
+            
+            # Get camera info
+            cameras = camera.global_camera_info()
+            if cameras:
+                cam_model = cameras[0].get('Model', 'Unknown')
+                print(f"✓ Using Pi Camera: {cam_model}")
+            
             config = camera.create_preview_configuration(
                 main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
             )
             camera.configure(config)
             camera.start()
             time.sleep(2)
-            return "Picamera2"
+            
+            # Test capture
+            test_frame = camera.capture_array()
+            if test_frame is not None:
+                print(f"✓ Camera ready: {test_frame.shape}")
+                return f"Pi Camera ({cam_model})" if cameras else "Picamera2"
         except Exception as e:
-            print(f"Picamera2 failed: {e}")
+            print(f"✗ Picamera2 failed: {e}")
+            camera = None
     
     # Fallback to USB webcam
+    print("🔄 Trying USB webcam...")
     try:
         camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
+            print("✗ Could not open /dev/video0")
+            return None
+            
         camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
         time.sleep(1)
-        return "USB Webcam"
+        
+        # Test capture
+        ret, test_frame = camera.read()
+        if ret and test_frame is not None:
+            print(f"✓ USB webcam ready: {test_frame.shape}")
+            return "USB Webcam"
+        else:
+            print("✗ Could not capture from USB webcam")
+            return None
     except Exception as e:
-        print(f"USB webcam failed: {e}")
+        print(f"✗ USB webcam failed: {e}")
         return None
 
 def get_frame():
@@ -362,6 +430,16 @@ class PiServerGUI:
     def start_server(self):
         """Start Flask server and camera"""
         self.log("Starting server...")
+        self.log("Detecting available cameras...")
+        
+        # Show available cameras
+        available = detect_available_cameras()
+        if available:
+            self.log(f"Found {len(available)} camera(s):")
+            for cam in available:
+                self.log(f"  • {cam}")
+        else:
+            self.log("⚠ No cameras detected!")
         
         # Initialize camera
         self.camera_type = init_camera()
@@ -370,6 +448,7 @@ class PiServerGUI:
             self.cam_status.config(text=f"Camera: {self.camera_type}", fg='#00ff00')
         else:
             self.log("✗ Camera initialization failed!")
+            self.log("Check camera connection and enable it in raspi-config")
             self.cam_status.config(text="Camera: Failed", fg='#ff4444')
         
         # Initialize arm
