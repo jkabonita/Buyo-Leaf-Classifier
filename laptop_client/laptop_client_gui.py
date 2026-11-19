@@ -37,7 +37,15 @@ VIDEO_HEIGHT = 480
 COMMAND_COOLDOWN = 2.0  # seconds between commands
 
 # ML Model Configuration
-MODEL_PATH = "buyo_best.pth"
+import os
+# Try to find model in current dir or parent dir
+if os.path.exists("buyo_best.pth"):
+    MODEL_PATH = "buyo_best.pth"
+elif os.path.exists("../buyo_best.pth"):
+    MODEL_PATH = "../buyo_best.pth"
+else:
+    MODEL_PATH = "buyo_best.pth"  # Will fail but show clear error
+
 CLASS_NAMES = ['CLASS A', 'CLASS B', 'CLASS C', 'CLASS D', 'CLASS E']
 IMG_SIZE = 224
 DETECTION_THRESHOLD = 0.60
@@ -56,9 +64,22 @@ def load_model():
     global model, model_loaded, preprocess
     
     try:
+        # Check if model file exists
+        if not os.path.exists(MODEL_PATH):
+            print(f"✗ Model file not found: {MODEL_PATH}")
+            print(f"   Current directory: {os.getcwd()}")
+            print(f"   Looking for: {os.path.abspath(MODEL_PATH)}")
+            print(f"\n   SOLUTION: Run the client from the project root directory:")
+            print(f"   cd ~/Desktop/Buyo-Leaf-Classifier")
+            print(f"   python3 laptop_client/laptop_client_gui.py")
+            return False
+        
         print(f"Loading model from {MODEL_PATH}...")
+        print(f"  File size: {os.path.getsize(MODEL_PATH) / (1024*1024):.1f} MB")
+        
         ckpt = torch.load(MODEL_PATH, map_location=device)
         backbone = ckpt.get('backbone', 'efficientnet_v2_s')
+        print(f"  Backbone: {backbone}")
         
         # Build model architecture
         if 'convnext' in backbone:
@@ -90,9 +111,11 @@ def load_model():
                 nn.Linear(256, 5),
             )
         
+        print(f"  Loading state dict...")
         model.load_state_dict(ckpt['state_dict'])
         model = model.to(device)
         model.eval()
+        print(f"  Model moved to {device}")
         
         # Setup preprocessing
         preprocess = transforms.Compose([
@@ -102,11 +125,16 @@ def load_model():
         ])
         
         model_loaded = True
-        print(f"✓ Model loaded successfully ({backbone})")
+        print(f"\n✓ Model loaded successfully!")
+        print(f"  Classes: {CLASS_NAMES}")
+        print(f"  Threshold: {DETECTION_THRESHOLD*100}%")
         return True
         
     except Exception as e:
-        print(f"✗ Model loading failed: {e}")
+        print(f"\n✗ Model loading failed!")
+        print(f"  Error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def detect_target(frame):
@@ -345,7 +373,11 @@ class LaptopClientGUI:
         status_bar = tk.Frame(self.root, bg='#1e1e1e', relief=tk.SUNKEN, bd=1)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         
-        self.status_text = tk.Label(status_bar, text="Ready - Load model to enable detection",
+        self.model_status_label = tk.Label(status_bar, text="Model: Loading...",
+                                          font=('Arial', 9, 'bold'), bg='#1e1e1e', fg='#ffaa00')
+        self.model_status_label.pack(side=tk.LEFT, padx=10, pady=2)
+        
+        self.status_text = tk.Label(status_bar, text="Ready",
                                    font=('Arial', 9), bg='#1e1e1e', fg='#888888',
                                    anchor=tk.W)
         self.status_text.pack(side=tk.LEFT, padx=10, pady=2)
@@ -626,10 +658,21 @@ if __name__ == '__main__':
     
     # Load model in background
     def load_model_async():
+        global app
         if load_model():
             print("✓ ML model loaded - detection ready")
+            if 'app' in globals():
+                app.root.after(0, lambda: app.model_status_label.config(
+                    text="Model: ✓ LOADED", fg='#4caf50'))
+                app.root.after(0, lambda: app.status_text.config(
+                    text="Model loaded - detection ready"))
         else:
             print("⚠ ML model not loaded - detection unavailable")
+            if 'app' in globals():
+                app.root.after(0, lambda: app.model_status_label.config(
+                    text="Model: ✗ NOT LOADED", fg='#ff4444'))
+                app.root.after(0, lambda: app.status_text.config(
+                    text="Model failed to load - check console for errors"))
     
     threading.Thread(target=load_model_async, daemon=True).start()
     
