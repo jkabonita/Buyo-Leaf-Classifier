@@ -65,28 +65,31 @@ def detect_available_cameras():
     """Detect which cameras are available"""
     available = []
     
-    # Check for Picamera2 (libcamera)
+    # Check for Picamera2 (libcamera) - Pi Camera Module
     if PICAMERA2_AVAILABLE:
         try:
-            test_cam = Picamera2()
-            cameras = test_cam.global_camera_info()
+            from picamera2 import Picamera2
+            cameras = Picamera2.global_camera_info()
             if cameras:
                 for i, cam_info in enumerate(cameras):
                     model = cam_info.get('Model', 'Unknown')
-                    available.append(f"Picamera2 #{i}: {model}")
-            test_cam.close()
+                    location = cam_info.get('Location', '')
+                    available.append(f"Pi Camera #{i}: {model} ({location})")
+                return available  # Return early if Pi cameras found
         except Exception as e:
-            print(f"Picamera2 detection failed: {e}")
+            print(f"Picamera2 detection error: {e}")
     
-    # Check for USB webcams
-    for i in range(4):  # Check first 4 video devices
-        try:
-            cap = cv2.VideoCapture(i)
+    # Only check for USB webcams if no Pi Camera found
+    # Check only /dev/video0 to avoid spam
+    try:
+        import os
+        if os.path.exists('/dev/video0'):
+            cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
             if cap.isOpened():
-                available.append(f"USB Webcam /dev/video{i}")
+                available.append("USB Webcam /dev/video0")
                 cap.release()
-        except:
-            pass
+    except Exception as e:
+        print(f"USB webcam check error: {e}")
     
     return available
 
@@ -109,28 +112,51 @@ def init_camera():
     if PICAMERA2_AVAILABLE:
         try:
             print("🔄 Initializing Picamera2...")
-            camera = Picamera2()
+            from picamera2 import Picamera2
             
-            # Get camera info
-            cameras = camera.global_camera_info()
-            if cameras:
+            # Get available cameras
+            cameras = Picamera2.global_camera_info()
+            if not cameras:
+                print("✗ No Picamera2 cameras found!")
+            else:
+                print(f"📸 Found {len(cameras)} Pi Camera(s)")
+                for i, cam_info in enumerate(cameras):
+                    print(f"   Camera {i}: {cam_info}")
+                
+                # Initialize first camera
+                camera = Picamera2()
                 cam_model = cameras[0].get('Model', 'Unknown')
-                print(f"✓ Using Pi Camera: {cam_model}")
-            
-            config = camera.create_preview_configuration(
-                main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
-            )
-            camera.configure(config)
-            camera.start()
-            time.sleep(2)
-            
-            # Test capture
-            test_frame = camera.capture_array()
-            if test_frame is not None:
-                print(f"✓ Camera ready: {test_frame.shape}")
-                return f"Pi Camera ({cam_model})" if cameras else "Picamera2"
+                
+                # Configure for streaming
+                config = camera.create_video_configuration(
+                    main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
+                )
+                camera.configure(config)
+                camera.start()
+                
+                print("⏳ Waiting for camera to stabilize...")
+                time.sleep(2)
+                
+                # Test capture
+                test_frame = camera.capture_array()
+                if test_frame is not None and test_frame.size > 0:
+                    print(f"✓ Camera ready: {test_frame.shape}")
+                    return f"Pi Camera ({cam_model})"
+                else:
+                    print("✗ Camera test capture failed")
+                    camera.stop()
+                    camera.close()
+                    camera = None
         except Exception as e:
-            print(f"✗ Picamera2 failed: {e}")
+            print(f"✗ Picamera2 initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
+            if camera:
+                try:
+                    camera.stop()
+                    camera.close()
+                except:
+                    pass
             camera = None
     
     # Fallback to USB webcam
