@@ -1,0 +1,318 @@
+================================================================================
+  RASPBERRY PI - QUICK SETUP GUIDE
+================================================================================
+
+FASTEST SETUP (One Command):
+============================
+
+After git pull, run this ONE command:
+
+    bash raspberry_pi_quick_setup.sh
+
+This will automatically:
+  ✓ Check system
+  ✓ Install all dependencies (apt packages)
+  ✓ Enable Camera and I2C
+  ✓ Create virtual environment
+  ✓ Install Python packages (Flask, OpenCV, NumPy, Pillow)
+  ✓ Install PyTorch CPU version
+  ✓ Install optional packages (picamera2, GPIO, ServoKit)
+  ✓ Verify everything works
+  ✓ Create desktop shortcut (optional)
+
+Takes: 10-15 minutes (mostly PyTorch download)
+
+
+STEP-BY-STEP SETUP:
+===================
+
+Step 1: Pull Latest Code
+-------------------------
+cd ~/Desktop/Buyo-Leaf-Classifier
+git pull origin main
+
+
+Step 2: Run Quick Setup Script
+-------------------------------
+bash raspberry_pi_quick_setup.sh
+
+Follow the prompts. It will ask:
+- Continue if not detected as Pi? (usually 'y')
+- Create desktop shortcut? (recommend 'y')
+
+
+Step 3: After Setup Completes
+------------------------------
+Activate venv:
+    source venv/bin/activate
+
+Run server:
+    python3 raspberry_pi_server/pi_server_gui.py
+
+Or use quick launcher:
+    bash run_pi_server.sh
+
+
+MANUAL SETUP (If Script Fails):
+================================
+
+Step 1: Install System Packages
+--------------------------------
+sudo apt update
+sudo apt install -y python3-pip python3-venv python3-opencv
+sudo apt install -y python3-picamera2  # For Pi Camera
+sudo apt install -y python3-rpi.gpio i2c-tools  # For arm control
+
+
+Step 2: Enable Interfaces
+--------------------------
+sudo raspi-config
+  → Interface Options → Camera → Enable
+  → Interface Options → I2C → Enable
+  → Finish and reboot
+
+
+Step 3: Create Virtual Environment
+-----------------------------------
+python3 -m venv venv
+source venv/bin/activate
+
+
+Step 4: Install Python Packages
+--------------------------------
+pip install flask opencv-python pillow numpy
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install RPi.GPIO adafruit-circuitpython-servokit
+
+
+Step 5: Run Server
+-------------------
+python3 raspberry_pi_server/pi_server_gui.py
+
+
+QUICK START (After Initial Setup):
+===================================
+
+Every time you want to start the server:
+
+Option A - Quick Launcher:
+    cd ~/Desktop/Buyo-Leaf-Classifier
+    bash run_pi_server.sh
+
+Option B - Manual:
+    cd ~/Desktop/Buyo-Leaf-Classifier
+    source venv/bin/activate
+    python3 raspberry_pi_server/pi_server_gui.py
+
+Option C - Desktop Shortcut:
+    Double-click "BuyoServer" icon on desktop
+
+
+WHAT YOU SHOULD SEE:
+====================
+
+When server starts:
+  ✓ GUI window opens
+  ✓ Large IP address displayed (e.g., 192.168.1.105)
+  ✓ "📋 Copy IP" button available
+  ✓ Status shows "● STOPPED"
+
+After clicking "▶ Start Server":
+  ✓ Status changes to "● RUNNING" (green)
+  ✓ Camera preview appears (if camera connected)
+  ✓ Command log ready to receive commands
+
+
+TROUBLESHOOTING:
+================
+
+Issue: "bash: raspberry_pi_quick_setup.sh: Permission denied"
+-------------------------------------------------------------
+Make it executable:
+    chmod +x raspberry_pi_quick_setup.sh
+    bash raspberry_pi_quick_setup.sh
+
+
+Issue: "Camera not detected"
+----------------------------
+For Pi Camera Module:
+    sudo raspi-config
+    → Interface Options → Camera → Enable
+    → Reboot
+
+For USB Webcam:
+    ls /dev/video*
+    # Should show /dev/video0
+
+Test camera:
+    libcamera-hello --qt-preview  # For Pi Camera
+    ffplay /dev/video0  # For USB webcam
+
+
+Issue: "No module named 'picamera2'"
+------------------------------------
+Install via apt (not pip):
+    sudo apt install -y python3-picamera2
+
+Or use USB webcam instead (auto-detected)
+
+
+Issue: "Robotic arm not responding"
+-----------------------------------
+Check I2C is enabled:
+    sudo raspi-config
+    → Interface Options → I2C → Enable
+
+Check I2C devices:
+    sudo i2cdetect -y 1
+    # Should show device at address 0x40
+
+Check connections:
+    - PCA9685 board connected to I2C pins
+    - Servo power supply connected
+    - Servos plugged into correct channels
+
+Install libraries:
+    pip install RPi.GPIO adafruit-circuitpython-servokit
+
+
+Issue: PyTorch installation is very slow
+-----------------------------------------
+This is normal! PyTorch is ~200MB for CPU version.
+Wait 5-10 minutes for download to complete.
+
+If it fails, try:
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --timeout 600
+
+
+Issue: "Out of memory" during installation
+------------------------------------------
+Raspberry Pi may need more swap space:
+    sudo dphys-swapfile swapoff
+    sudo nano /etc/dphys-swapfile
+    # Change CONF_SWAPSIZE=100 to CONF_SWAPSIZE=1024
+    sudo dphys-swapfile setup
+    sudo dphys-swapfile swapon
+
+
+SYSTEM REQUIREMENTS:
+====================
+
+Hardware:
+  - Raspberry Pi 3B+ or newer (Pi 4/5 recommended)
+  - 2GB+ RAM (4GB recommended)
+  - 8GB+ SD card with space available
+  - Camera (Pi Camera Module or USB webcam)
+  - Optional: PCA9685 board + servo motors for arm
+
+OS:
+  - Raspberry Pi OS (32-bit or 64-bit)
+  - Updated to latest version
+
+Network:
+  - Connected to same Wi-Fi as laptop
+  - Static IP recommended (optional)
+
+
+PACKAGE SIZES:
+==============
+
+Approximate download sizes:
+  - System packages: ~50 MB
+  - Flask + dependencies: ~10 MB
+  - OpenCV: ~50 MB (if not using apt version)
+  - NumPy + Pillow: ~20 MB
+  - PyTorch CPU: ~200 MB
+  - Optional packages: ~20 MB
+
+Total: ~350 MB download + ~1 GB installed
+
+
+TESTING THE SETUP:
+==================
+
+After setup, test each component:
+
+1. Test Python:
+    python3 --version
+
+2. Test packages:
+    python3 << EOF
+import flask; print('Flask OK')
+import cv2; print('OpenCV OK')
+import torch; print('PyTorch OK')
+import numpy; print('NumPy OK')
+from PIL import Image; print('Pillow OK')
+EOF
+
+3. Test camera:
+    libcamera-hello --qt-preview  # Pi Camera
+    ls /dev/video0  # USB webcam
+
+4. Test I2C (for arm):
+    sudo i2cdetect -y 1
+
+5. Test GPIO:
+    python3 -c "import RPi.GPIO; print('GPIO OK')"
+
+
+PERFORMANCE NOTES:
+==================
+
+Expected performance on Raspberry Pi:
+  - Server startup: ~3-5 seconds
+  - Camera streaming: 10-20 FPS (depends on model)
+  - Command response: <100ms
+  - CPU usage: 30-50% during streaming
+  - Memory usage: 300-500 MB
+
+Raspberry Pi does NOT run ML inference locally.
+All classification happens on the laptop GPU.
+
+
+NEXT STEPS:
+===========
+
+After Pi server is running:
+1. Note the IP address shown in GUI
+2. Go to laptop
+3. Run laptop client GUI
+4. Enter Pi IP and connect
+5. Video feed should appear
+6. Test manual controls
+7. Enable vision detection on laptop
+
+
+ADDITIONAL TIPS:
+================
+
+1. Assign static IP to Pi for easier connection:
+    sudo nano /etc/dhcpcd.conf
+    # Add: interface wlan0
+    #      static ip_address=192.168.1.100/24
+
+2. Auto-start server on boot (optional):
+    sudo nano /etc/xdg/autostart/buyo.desktop
+    # Add desktop entry
+
+3. Monitor system resources:
+    htop  # Install with: sudo apt install htop
+
+4. Check logs if issues:
+    journalctl -f  # System logs
+    dmesg | tail  # Kernel messages
+
+
+HELP:
+=====
+
+If setup fails at any step:
+1. Check terminal output for error messages
+2. Verify internet connection
+3. Make sure SD card has enough space: df -h
+4. Check system is up to date: sudo apt update && sudo apt upgrade
+5. Reboot and try again
+
+Still stuck? Check README.md for more details.
+
+================================================================================
