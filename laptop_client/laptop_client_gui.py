@@ -105,10 +105,15 @@ def load_model():
             model = models.efficientnet_v2_s(weights=None)
             in_f = model.classifier[1].in_features
             model.classifier = nn.Sequential(
-                nn.Dropout(p=0.35, inplace=True), nn.Linear(in_f, 512),
-                nn.SiLU(), nn.BatchNorm1d(512), nn.Dropout(p=0.25),
-                nn.Linear(512, 256), nn.SiLU(), nn.Dropout(p=0.15),
-                nn.Linear(256, 5),
+                nn.Dropout(p=0.35, inplace=True),  # 0
+                nn.Linear(in_f, 512),                # 1
+                nn.SiLU(),                           # 2
+                nn.BatchNorm1d(512),                 # 3
+                nn.Dropout(p=0.25),                  # 4
+                nn.Linear(512, 256),                 # 5
+                nn.SiLU(),                           # 6
+                nn.Dropout(p=0.15),                  # 7
+                nn.Linear(256, 5),                   # 8
             )
         
         print(f"  Loading state dict...")
