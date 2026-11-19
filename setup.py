@@ -60,6 +60,7 @@ def run_command(cmd, description="", check=True, shell=False):
     """Run shell command and return output"""
     try:
         print_info(f"{description}...")
+        print(f"   Command: {' '.join(str(c) for c in cmd)}")
         result = subprocess.run(
             cmd if not shell else cmd,
             shell=shell,
@@ -69,17 +70,26 @@ def run_command(cmd, description="", check=True, shell=False):
             timeout=600  # 10 minute timeout for large downloads
         )
         print_success(f"{description} - Done")
+        if result.stdout:
+            print(f"   Output: {result.stdout[:500]}")
         return result.returncode == 0, result.stdout
     except subprocess.CalledProcessError as e:
         print_error(f"{description} - Failed")
+        print(f"   Command: {' '.join(str(c) for c in cmd)}")
+        print(f"   Return code: {e.returncode}")
+        if e.stdout:
+            print(f"   Stdout: {e.stdout[:500]}")
         if e.stderr:
-            print(f"   Error details: {e.stderr[:200]}")
+            print(f"   Stderr: {e.stderr[:500]}")
         return False, e.stderr
     except subprocess.TimeoutExpired:
         print_error(f"{description} - Timeout (>10 minutes)")
+        print(f"   Command: {' '.join(str(c) for c in cmd)}")
         return False, "Timeout"
     except Exception as e:
         print_error(f"{description} - Error: {e}")
+        print(f"   Exception type: {type(e).__name__}")
+        print(f"   Command: {' '.join(str(c) for c in cmd)}")
         return False, str(e)
 
 def detect_device_type():
@@ -153,13 +163,24 @@ def upgrade_pip(pip_path):
     print_info("Upgrading pip...")
     try:
         # Use python -m pip to avoid Windows file locking issues
-        python_path = pip_path.parent / 'python.exe' if platform.system() == 'Windows' else pip_path.parent / 'python'
+        python_path = pip_path.parent / ('python.exe' if platform.system() == 'Windows' else 'python')
+        print(f"   Python path: {python_path}")
+        print(f"   Python exists: {python_path.exists()}")
+        print(f"   Command: {python_path} -m pip install --upgrade pip")
+        
         result = subprocess.run(
             [str(python_path), '-m', 'pip', 'install', '--upgrade', 'pip'],
             capture_output=True,
             text=True,
             timeout=300
         )
+        
+        print(f"   Return code: {result.returncode}")
+        if result.stdout:
+            print(f"   Stdout: {result.stdout[:500]}")
+        if result.stderr:
+            print(f"   Stderr: {result.stderr[:500]}")
+        
         if result.returncode == 0:
             print_success("Pip upgraded successfully")
             return True
@@ -168,17 +189,30 @@ def upgrade_pip(pip_path):
             return True  # Continue even if upgrade fails
     except Exception as e:
         print_warning(f"Could not upgrade pip: {e} (continuing anyway)")
+        print(f"   Exception type: {type(e).__name__}")
         return True  # Continue even if upgrade fails
 
 def install_requirements(pip_path, requirements_file):
     """Install requirements from file"""
+    print_info(f"Checking requirements file: {requirements_file}")
+    print(f"   File path: {requirements_file}")
+    print(f"   Exists: {requirements_file.exists()}")
+    print(f"   Pip path: {pip_path}")
+    print(f"   Pip exists: {pip_path.exists()}")
+    
     if not requirements_file.exists():
         print_error(f"Requirements file not found: {requirements_file}")
         return False
     
     print_info(f"Installing from {requirements_file.name}...")
-    success, _ = run_command(
-        [str(pip_path), 'install', '-r', str(requirements_file)],
+    
+    # Use python -m pip for better compatibility
+    python_path = pip_path.parent / ('python.exe' if platform.system() == 'Windows' else 'python')
+    print(f"   Using Python: {python_path}")
+    print(f"   Python exists: {python_path.exists()}")
+    
+    success, output = run_command(
+        [str(python_path), '-m', 'pip', 'install', '-r', str(requirements_file)],
         f"Installing packages from {requirements_file.name}"
     )
     return success
@@ -212,7 +246,11 @@ def install_pytorch(pip_path, device_type):
     print_header("Installing PyTorch")
     
     # Get python executable for better compatibility on Windows
-    python_path = pip_path.parent / 'python.exe' if platform.system() == 'Windows' else pip_path.parent / 'python'
+    python_path = pip_path.parent / ('python.exe' if platform.system() == 'Windows' else 'python')
+    print(f"   Python path: {python_path}")
+    print(f"   Python exists: {python_path.exists()}")
+    print(f"   Pip path: {pip_path}")
+    print(f"   Pip exists: {pip_path.exists()}")
     
     if device_type == 'raspberry_pi':
         print_info("Installing PyTorch for Raspberry Pi (CPU only)...")
@@ -261,15 +299,26 @@ def install_pytorch(pip_path, device_type):
                 print_warning(f"Could not detect CUDA version, using default: {cuda_tag}")
             
             print_info("This may take 5-10 minutes for large download...")
+            print_warning("Note: PyTorch is ~2.8GB - if download fails, try CPU version or manual install")
             
             try:
+                cmd = [str(python_path), '-m', 'pip', 'install', 'torch', 'torchvision', 
+                       '--index-url', f'https://download.pytorch.org/whl/{cuda_tag}']
+                print(f"   Command: {' '.join(cmd)}")
+                
                 result = subprocess.run(
-                    [str(python_path), '-m', 'pip', 'install', 'torch', 'torchvision', 
-                     '--index-url', f'https://download.pytorch.org/whl/{cuda_tag}'],
+                    cmd,
                     capture_output=True,
                     text=True,
                     timeout=900  # 15 minutes for large download
                 )
+                
+                print(f"   Return code: {result.returncode}")
+                if result.stdout:
+                    print(f"   Stdout: {result.stdout[-1000:]}")  # Last 1000 chars
+                if result.stderr:
+                    print(f"   Stderr: {result.stderr[-1000:]}")
+                
                 if result.returncode == 0:
                     print_success(f"PyTorch with {cuda_tag} installed successfully")
                     return True
