@@ -2,9 +2,35 @@
 
 > AI-powered automated grading system for Buyo (Betel) leaves using deep learning and remote GPU processing
 
-[![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.7+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+
+## 🛠️ Tech Stack
+
+### Core Technologies
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white)
+![Pillow](https://img.shields.io/badge/Pillow-8CAAE6?style=for-the-badge&logo=python&logoColor=white)
+
+### Machine Learning Models
+![EfficientNet](https://img.shields.io/badge/EfficientNetV2--S-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![ConvNeXt](https://img.shields.io/badge/ConvNeXt--Tiny-0467DF?style=for-the-badge&logo=meta&logoColor=white)
+![ResNet](https://img.shields.io/badge/ResNet50-00A4EF?style=for-the-badge&logo=microsoft&logoColor=white)
+
+### Frameworks & Libraries
+![Flask](https://img.shields.io/badge/Flask-000000?style=for-the-badge&logo=flask&logoColor=white)
+![TensorFlow Lite](https://img.shields.io/badge/TFLite-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)
+![Matplotlib](https://img.shields.io/badge/Matplotlib-11557c?style=for-the-badge&logo=python&logoColor=white)
+![Seaborn](https://img.shields.io/badge/Seaborn-3776AB?style=for-the-badge&logo=python&logoColor=white)
+
+### Hardware & Deployment
+![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-A22846?style=for-the-badge&logo=raspberry-pi&logoColor=white)
+![NVIDIA](https://img.shields.io/badge/NVIDIA%20GPU-76B900?style=for-the-badge&logo=nvidia&logoColor=white)
+![Git](https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white)
 
 ---
 
@@ -45,12 +71,19 @@ The Buyo Leaf Classifier is an end-to-end machine learning system designed to au
 ## ✨ Features
 
 ### Machine Learning
-- ✅ **Multiple Model Architectures**: EfficientNetV2-S, ConvNeXt-Tiny, ResNet50
+
+#### 🧠 Model Architectures
+- ✅ **EfficientNetV2-S** ![](https://img.shields.io/badge/-21M_params-4285F4?style=flat-square) - Google's efficient CNN
+- ✅ **ConvNeXt-Tiny** ![](https://img.shields.io/badge/-28M_params-0467DF?style=flat-square) - Modern ConvNet by Meta
+- ✅ **ResNet50** ![](https://img.shields.io/badge/-25M_params-00A4EF?style=flat-square) - Deep residual network by Microsoft
+
+#### 🎯 Training Features
 - ✅ **Ensemble Training**: Knowledge distillation from multiple teacher models
 - ✅ **Advanced Augmentation**: Mixup, CutMix, class-specific augmentation
 - ✅ **Focal Loss**: Handles hard-to-classify examples (CLASS B, C, D)
 - ✅ **Test-Time Augmentation (TTA)**: Improved inference accuracy
 - ✅ **Gradient Accumulation**: Effective batch size optimization for limited VRAM
+- ✅ **Mixed Precision Training**: FP16 for faster training with AMP
 
 ### Remote Processing System
 - ✅ **Two-Device Architecture**: Raspberry Pi + Laptop GPU
@@ -190,16 +223,39 @@ This project uses the global Python environment. No virtual environment is neede
 ### Raspberry Pi Dependencies
 
 ```bash
+# Core dependencies
 pip3 install flask opencv-python pillow numpy
-pip3 install picamera2  # Pi Camera Module
-pip3 install RPi.GPIO adafruit-circuitpython-servokit  # Robotic arm
+
+# Camera support (Pi Camera Module)
+pip3 install picamera2
+
+# Robotic arm control
+pip3 install RPi.GPIO adafruit-circuitpython-servokit
 ```
+
+**Libraries Used:**
+- ![Flask](https://img.shields.io/badge/Flask-000000?style=flat-square&logo=flask&logoColor=white) Web framework for HTTP server
+- ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=flat-square&logo=opencv&logoColor=white) Computer vision and image processing
+- ![Pillow](https://img.shields.io/badge/Pillow-8CAAE6?style=flat-square&logo=python&logoColor=white) Image manipulation
+- ![NumPy](https://img.shields.io/badge/NumPy-013243?style=flat-square&logo=numpy&logoColor=white) Numerical computing
 
 ### Laptop Dependencies
 
 ```bash
-pip install requests pillow opencv-python numpy torch torchvision
+# Core ML dependencies
+pip install torch torchvision numpy opencv-python pillow
+
+# Network and utilities
+pip install requests matplotlib seaborn scikit-learn
 ```
+
+**Libraries Used:**
+- ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white) Deep learning framework
+- ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=flat-square&logo=opencv&logoColor=white) Computer vision
+- ![NumPy](https://img.shields.io/badge/NumPy-013243?style=flat-square&logo=numpy&logoColor=white) Array operations
+- ![scikit-learn](https://img.shields.io/badge/sklearn-F7931E?style=flat-square&logo=scikit-learn&logoColor=white) Metrics and evaluation
+- ![Matplotlib](https://img.shields.io/badge/Matplotlib-11557c?style=flat-square) Visualization
+- ![Seaborn](https://img.shields.io/badge/Seaborn-3776AB?style=flat-square) Statistical plots
 
 **For GPU Support** (NVIDIA CUDA):
 
@@ -577,13 +633,18 @@ docker run -p 5000:5000 --gpus all buyo-classifier
 
 ### Model Accuracy
 
-| Model              | Validation Acc | Params | Inference Time (GPU) |
-|--------------------|----------------|--------|----------------------|
-| EfficientNetV2-S   | 72.4%          | 21M    | ~17ms               |
-| ConvNeXt-Tiny      | 74.1%          | 28M    | ~20ms               |
-| ResNet50           | 70.8%          | 25M    | ~15ms               |
-| **Ensemble**       | **75.3%**      | 28M    | ~20ms               |
-| Distilled          | 73.9%          | 28M    | ~20ms               |
+| Model              | Architecture | Validation Acc | Params | Inference (GPU) | Source |
+|--------------------|--------------|----------------|--------|-----------------|--------|
+| EfficientNetV2-S   | ![Google](https://img.shields.io/badge/-Google-4285F4?style=flat-square&logo=google&logoColor=white) | 72.4%          | 21M    | ~17ms          | ImageNet |
+| ConvNeXt-Tiny      | ![Meta](https://img.shields.io/badge/-Meta-0467DF?style=flat-square&logo=meta&logoColor=white) | 74.1%          | 28M    | ~20ms          | ImageNet |
+| ResNet50           | ![Microsoft](https://img.shields.io/badge/-Microsoft-00A4EF?style=flat-square&logo=microsoft&logoColor=white) | 70.8%          | 25M    | ~15ms          | ImageNet |
+| **Ensemble**       | 🎯 **Combined** | **75.3%**      | 28M    | ~20ms          | Custom |
+| Distilled          | 📦 **Single Model** | 73.9%          | 28M    | ~20ms          | Custom |
+
+**Training Stack:**
+- ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white) Deep learning framework
+- ![CUDA](https://img.shields.io/badge/CUDA-76B900?style=flat-square&logo=nvidia&logoColor=white) GPU acceleration
+- ![Mixed Precision](https://img.shields.io/badge/AMP-FP16-orange?style=flat-square) Automatic Mixed Precision
 
 ### Per-Class Accuracy (Best Model)
 
