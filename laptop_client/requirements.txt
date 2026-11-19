@@ -1,0 +1,18 @@
+# Laptop Client Requirements
+# Install: pip install -r requirements.txt
+
+# Networking & GUI
+requests>=2.31.0
+pillow>=10.0.0
+
+# Computer Vision
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Machine Learning (GPU support)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Note: For GPU support, install PyTorch with CUDA:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# (Replace cu118 with your CUDA version)

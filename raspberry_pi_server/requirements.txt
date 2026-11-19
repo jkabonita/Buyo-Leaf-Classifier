@@ -1,0 +1,15 @@
+# Raspberry Pi Server Requirements
+# Install: pip install -r requirements.txt
+
+flask>=2.3.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+numpy>=1.24.0
+
+# Optional - for Pi Camera Module support (install on Raspberry Pi only)
+# picamera2  # Uncomment if using Pi Camera Module
+# libcamera  # Usually pre-installed on Raspberry Pi OS
+
+# Optional - for robotic arm control (install on Raspberry Pi only)
+# RPi.GPIO  # Uncomment if using GPIO pins
+# adafruit-circuitpython-servokit  # Uncomment if using ServoKit/PCA9685
