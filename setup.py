@@ -65,13 +65,19 @@ def run_command(cmd, description="", check=True, shell=False):
             shell=shell,
             check=check,
             capture_output=True,
-            text=True
+            text=True,
+            timeout=600  # 10 minute timeout for large downloads
         )
         print_success(f"{description} - Done")
         return result.returncode == 0, result.stdout
     except subprocess.CalledProcessError as e:
-        print_error(f"{description} - Failed: {e}")
+        print_error(f"{description} - Failed")
+        if e.stderr:
+            print(f"   Error details: {e.stderr[:200]}")
         return False, e.stderr
+    except subprocess.TimeoutExpired:
+        print_error(f"{description} - Timeout (>10 minutes)")
+        return False, "Timeout"
     except Exception as e:
         print_error(f"{description} - Error: {e}")
         return False, str(e)
@@ -144,11 +150,25 @@ def get_venv_pip(venv_path):
 
 def upgrade_pip(pip_path):
     """Upgrade pip to latest version"""
-    success, _ = run_command(
-        [str(pip_path), 'install', '--upgrade', 'pip'],
-        "Upgrading pip"
-    )
-    return success
+    print_info("Upgrading pip...")
+    try:
+        # Use python -m pip to avoid Windows file locking issues
+        python_path = pip_path.parent / 'python.exe' if platform.system() == 'Windows' else pip_path.parent / 'python'
+        result = subprocess.run(
+            [str(python_path), '-m', 'pip', 'install', '--upgrade', 'pip'],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        if result.returncode == 0:
+            print_success("Pip upgraded successfully")
+            return True
+        else:
+            print_warning(f"Pip upgrade had issues (continuing anyway)")
+            return True  # Continue even if upgrade fails
+    except Exception as e:
+        print_warning(f"Could not upgrade pip: {e} (continuing anyway)")
+        return True  # Continue even if upgrade fails
 
 def install_requirements(pip_path, requirements_file):
     """Install requirements from file"""
@@ -191,15 +211,31 @@ def install_pytorch(pip_path, device_type):
     """Install PyTorch with appropriate backend"""
     print_header("Installing PyTorch")
     
+    # Get python executable for better compatibility on Windows
+    python_path = pip_path.parent / 'python.exe' if platform.system() == 'Windows' else pip_path.parent / 'python'
+    
     if device_type == 'raspberry_pi':
         print_info("Installing PyTorch for Raspberry Pi (CPU only)...")
+        print_info("This may take 5-10 minutes...")
         # For Raspberry Pi, use CPU version
-        success, _ = run_command(
-            [str(pip_path), 'install', 'torch', 'torchvision', '--index-url', 
-             'https://download.pytorch.org/whl/cpu'],
-            "Installing PyTorch CPU"
-        )
-        return success
+        try:
+            result = subprocess.run(
+                [str(python_path), '-m', 'pip', 'install', 'torch', 'torchvision', 
+                 '--index-url', 'https://download.pytorch.org/whl/cpu'],
+                capture_output=True,
+                text=True,
+                timeout=900  # 15 minutes for large download
+            )
+            if result.returncode == 0:
+                print_success("PyTorch CPU installed successfully")
+                return True
+            else:
+                print_error("PyTorch installation failed")
+                print(f"   Try manually: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu")
+                return False
+        except Exception as e:
+            print_error(f"PyTorch installation error: {e}")
+            return False
     
     else:
         # For laptop/desktop, check for GPU
@@ -224,20 +260,59 @@ def install_pytorch(pip_path, device_type):
                 cuda_tag = 'cu118'  # Safe default
                 print_warning(f"Could not detect CUDA version, using default: {cuda_tag}")
             
-            success, _ = run_command(
-                [str(pip_path), 'install', 'torch', 'torchvision', 
-                 '--index-url', f'https://download.pytorch.org/whl/{cuda_tag}'],
-                f"Installing PyTorch with {cuda_tag}"
-            )
-            return success
+            print_info("This may take 5-10 minutes for large download...")
+            
+            try:
+                result = subprocess.run(
+                    [str(python_path), '-m', 'pip', 'install', 'torch', 'torchvision', 
+                     '--index-url', f'https://download.pytorch.org/whl/{cuda_tag}'],
+                    capture_output=True,
+                    text=True,
+                    timeout=900  # 15 minutes for large download
+                )
+                if result.returncode == 0:
+                    print_success(f"PyTorch with {cuda_tag} installed successfully")
+                    return True
+                else:
+                    print_error(f"PyTorch installation failed")
+                    print_warning("Trying CPU version as fallback...")
+                    # Fallback to CPU version
+                    result = subprocess.run(
+                        [str(python_path), '-m', 'pip', 'install', 'torch', 'torchvision'],
+                        capture_output=True,
+                        text=True,
+                        timeout=900
+                    )
+                    if result.returncode == 0:
+                        print_success("PyTorch CPU installed (will be slower)")
+                        return True
+                    else:
+                        print_error("PyTorch CPU installation also failed")
+                        print(f"   Try manually: pip install torch torchvision")
+                        return False
+            except Exception as e:
+                print_error(f"PyTorch installation error: {e}")
+                return False
         else:
             print_warning("No GPU detected - Installing PyTorch CPU version")
             print_warning("This will be slower for inference!")
-            success, _ = run_command(
-                [str(pip_path), 'install', 'torch', 'torchvision'],
-                "Installing PyTorch CPU"
-            )
-            return success
+            print_info("This may take 5-10 minutes...")
+            try:
+                result = subprocess.run(
+                    [str(python_path), '-m', 'pip', 'install', 'torch', 'torchvision'],
+                    capture_output=True,
+                    text=True,
+                    timeout=900
+                )
+                if result.returncode == 0:
+                    print_success("PyTorch CPU installed successfully")
+                    return True
+                else:
+                    print_error("PyTorch installation failed")
+                    return False
+            except Exception as e:
+                print_error(f"PyTorch installation error: {e}")
+                return False
 
 def install_pi_specific_packages(pip_path):
     """Install Raspberry Pi specific packages"""
@@ -419,16 +494,35 @@ def main():
         sys.exit(1)
     
     # Install PyTorch
-    if not install_pytorch(pip_path, device_type):
-        print_error("Failed to install PyTorch")
-        sys.exit(1)
+    pytorch_success = install_pytorch(pip_path, device_type)
+    if not pytorch_success:
+        print_error("PyTorch installation failed")
+        print_warning("\nYou can install PyTorch manually after setup:")
+        if device_type == 'laptop':
+            print_info("  Activate venv, then run:")
+            if platform.system() == 'Windows':
+                print_info("    venv\\Scripts\\activate")
+            else:
+                print_info("    source venv/bin/activate")
+            print_info("    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118")
+        else:
+            print_info("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu")
+        
+        response = input("\nContinue without PyTorch? (y/N): ").strip().lower()
+        if response != 'y':
+            print_error("Setup cancelled")
+            sys.exit(1)
+        print_warning("Continuing without PyTorch...")
     
     # Install device-specific packages
     if device_type == 'raspberry_pi':
         install_pi_specific_packages(pip_path)
     
     # Verify installation
-    verify_installation(python_path, device_type)
+    if pytorch_success:
+        verify_installation(python_path, device_type)
+    else:
+        print_warning("Skipping verification due to PyTorch installation failure")
     
     # Show next steps
     create_activation_instructions(venv_path, device_type)
