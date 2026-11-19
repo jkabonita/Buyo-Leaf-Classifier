@@ -1,0 +1,110 @@
+================================================================================
+  BUYO LEAF CLASSIFIER - QUICK SETUP INSTRUCTIONS
+================================================================================
+
+ONE-COMMAND SETUP (Recommended)
+================================
+
+After git pull, run this ONE command on either device:
+
+    python setup.py
+
+This will automatically:
+  ✓ Detect if you're on Raspberry Pi or Laptop
+  ✓ Create virtual environment (venv/)
+  ✓ Install all dependencies
+  ✓ Install PyTorch with GPU support (laptop) or CPU (Pi)
+  ✓ Install optional Pi Camera and arm libraries (Pi)
+  ✓ Verify installation
+  ✓ Show next steps
+
+
+ADVANCED OPTIONS
+================
+
+Force device type:
+    python setup.py --pi       # Force Raspberry Pi setup
+    python setup.py --laptop   # Force Laptop setup
+
+Skip virtual environment:
+    python setup.py --no-venv  # Use system Python
+
+
+WHAT GETS INSTALLED
+===================
+
+Raspberry Pi Server:
+  - Flask (web server)
+  - OpenCV (camera capture)
+  - NumPy, Pillow (image processing)
+  - PyTorch (CPU version)
+  - Optional: picamera2, RPi.GPIO, ServoKit
+
+Laptop Client:
+  - Requests (HTTP client)
+  - OpenCV (video display)
+  - NumPy, Pillow (image processing)
+  - PyTorch + CUDA (GPU accelerated)
+  - Tkinter (built-in, no install needed)
+
+
+MANUAL SETUP (if automated setup fails)
+========================================
+
+Raspberry Pi:
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r raspberry_pi_server/requirements.txt
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+Laptop:
+    python -m venv venv
+    venv\Scripts\activate  (Windows)
+    source venv/bin/activate  (Mac/Linux)
+    pip install -r laptop_client/requirements.txt
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+
+AFTER SETUP
+===========
+
+1. Activate venv:
+   Windows: venv\Scripts\activate
+   Linux/Mac: source venv/bin/activate
+
+2. Run application:
+   Raspberry Pi: python raspberry_pi_server/pi_server_gui.py
+   Laptop: python laptop_client/laptop_client_gui.py
+
+
+TROUBLESHOOTING
+===============
+
+"python: command not found"
+    → Use python3 instead: python3 setup.py
+
+"Permission denied"
+    → Make setup.py executable: chmod +x setup.py
+    → Or run with python: python setup.py
+
+"pip install failed"
+    → Update pip: pip install --upgrade pip
+    → Try with sudo: sudo pip install -r requirements.txt
+
+"CUDA not found" (Laptop)
+    → Check NVIDIA driver: nvidia-smi
+    → Install CUDA toolkit: https://developer.nvidia.com/cuda-downloads
+    → Or use CPU version (slower)
+
+"picamera2 not found" (Pi)
+    → Install system package: sudo apt install python3-picamera2
+    → Or use USB webcam (auto-detected)
+
+
+MORE HELP
+=========
+
+See README.md for full documentation
+Run: python setup.py --help
+
+================================================================================

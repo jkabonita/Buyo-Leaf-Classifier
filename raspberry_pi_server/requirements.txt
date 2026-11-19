@@ -1,15 +1,20 @@
 # Raspberry Pi Server Requirements
 # Install: pip install -r requirements.txt
+# Or use: python setup.py (automated setup)
 
+# Core dependencies
 flask>=2.3.0
 opencv-python>=4.8.0
 pillow>=10.0.0
 numpy>=1.24.0
 
-# Optional - for Pi Camera Module support (install on Raspberry Pi only)
-# picamera2  # Uncomment if using Pi Camera Module
-# libcamera  # Usually pre-installed on Raspberry Pi OS
+# Note: PyTorch will be installed by setup.py based on device capabilities
+# For manual install: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Optional - for robotic arm control (install on Raspberry Pi only)
-# RPi.GPIO  # Uncomment if using GPIO pins
-# adafruit-circuitpython-servokit  # Uncomment if using ServoKit/PCA9685
+# Optional - Pi Camera Module support (install separately)
+# picamera2  # Install with: pip install picamera2
+#            # Or via apt: sudo apt install python3-picamera2
+
+# Optional - Robotic arm control (install separately if needed)
+# RPi.GPIO                          # Install with: pip install RPi.GPIO
+# adafruit-circuitpython-servokit   # Install with: pip install adafruit-circuitpython-servokit
