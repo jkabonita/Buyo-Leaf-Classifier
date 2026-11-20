@@ -260,6 +260,10 @@ class LaptopClientGUI:
         self.video_running = False
         self.detection_enabled = tk.BooleanVar(value=False)
         
+        # Local camera support
+        self.local_camera = None
+        self.use_local_camera = False
+        
         # Cooldown tracking
         self.last_command_time = 0
         
@@ -275,6 +279,9 @@ class LaptopClientGUI:
         
         self.setup_ui()
         self.start_command_processor()
+        
+        # Auto-start local camera if Pi not connected
+        self.root.after(1000, self.check_and_start_local_camera)
         
     def setup_ui(self):
         """Setup GUI layout"""
@@ -449,6 +456,142 @@ class LaptopClientGUI:
         
         threading.Thread(target=test, daemon=True).start()
     
+    def check_and_start_local_camera(self):
+        """Start local camera if not connected to Pi"""
+        if not self.connected and not self.video_running:
+            self.log("📷 No Pi connection - starting local camera...")
+            self.start_local_camera()
+    
+    def start_local_camera(self):
+        """Start video feed from local laptop camera"""
+        self.log("Starting local camera...")
+        
+        # Find available camera
+        camera_index = None
+        for i in range(5):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                camera_index = i
+                cap.release()
+                break
+        
+        if camera_index is None:
+            self.log("✗ No local camera detected", 'ERROR')
+            messagebox.showerror("Camera Error", "No camera detected on this device")
+            return
+        
+        self.use_local_camera = True
+        self.local_camera = cv2.VideoCapture(camera_index)
+        
+        if not self.local_camera.isOpened():
+            self.log("✗ Failed to open camera", 'ERROR')
+            return
+        
+        # Start local video stream
+        self.video_stop_event.clear()
+        self.video_thread = threading.Thread(target=self.local_camera_worker, daemon=True)
+        self.video_thread.start()
+        
+        # Update UI
+        self.status_badge.config(text="● LOCAL CAMERA", fg='#ffaa00')
+        self.status_text.config(text=f"Using local camera {camera_index}")
+        self.log(f"✓ Local camera started (Camera {camera_index})", 'SUCCESS')
+    
+    def stop_local_camera(self):
+        """Stop local camera feed"""
+        if self.local_camera:
+            self.video_stop_event.set()
+            if self.video_thread:
+                self.video_thread.join(timeout=2)
+            
+            self.local_camera.release()
+            self.local_camera = None
+            self.use_local_camera = False
+            self.video_running = False
+            
+            # Clear display
+            self.video_label.config(image='')
+            
+            self.log("✓ Local camera stopped", 'SUCCESS')
+    
+    def local_camera_worker(self):
+        """Background worker for local camera feed"""
+        self.log("Local camera worker started...")
+        fps_counter = []
+        last_detection_time = 0
+        detection_cooldown = 1.0
+        
+        self.video_running = True
+        
+        try:
+            while not self.video_stop_event.is_set():
+                t0 = time.time()
+                
+                ret, frame = self.local_camera.read()
+                if not ret:
+                    self.log("✗ Failed to read from camera", 'ERROR')
+                    break
+                
+                # Store current frame
+                with self.frame_lock:
+                    self.current_frame = frame.copy()
+                
+                # Run detection if enabled
+                display_frame = frame
+                if self.detection_enabled.get():
+                    current_time = time.time()
+                    if current_time - last_detection_time >= detection_cooldown:
+                        result = detect_target(frame)
+                        display_frame = result['annotated_frame']
+                        
+                        # Update detection status
+                        status_text = f"Detection: {result['class']} ({result['confidence']*100:.1f}%)"
+                        status_color = '#00ff00' if result['detected'] else '#888888'
+                        self.root.after(0, lambda: self.detection_status.config(
+                            text=status_text, fg=status_color))
+                        
+                        # Store last detection result
+                        if result['detected']:
+                            self.last_detection = {
+                                'class': result['class'],
+                                'confidence': result['confidence']
+                            }
+                            self.log(f"🎯 Detected: {result['class']} ({result['confidence']*100:.1f}%)", 'SUCCESS')
+                        
+                        last_detection_time = current_time
+                else:
+                    self.root.after(0, lambda: self.detection_status.config(
+                        text="Detection: Disabled", fg='#888888'))
+                
+                # Resize for display
+                display_frame = cv2.resize(display_frame, (VIDEO_WIDTH, VIDEO_HEIGHT))
+                frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                
+                # Convert to PIL Image
+                img = Image.fromarray(frame_rgb)
+                img_tk = ImageTk.PhotoImage(image=img)
+                
+                # Update display
+                self.video_label.config(image=img_tk)
+                self.video_label.image = img_tk
+                
+                # Calculate FPS
+                fps_counter.append(1.0 / max(0.001, time.time() - t0))
+                if len(fps_counter) > 30:
+                    fps_counter.pop(0)
+                fps = np.mean(fps_counter)
+                self.root.after(0, lambda f=fps: self.fps_label.config(text=f"FPS: {f:.1f}"))
+                
+                # Limit framerate
+                time.sleep(0.03)  # ~30 FPS
+        
+        except Exception as e:
+            self.log(f"✗ Local camera error: {str(e)}", 'ERROR')
+        
+        finally:
+            self.video_running = False
+            self.log("Local camera worker stopped")
+    
     def toggle_connection(self):
         """Connect or disconnect from Raspberry Pi"""
         if not self.connected:
@@ -461,16 +604,25 @@ class LaptopClientGUI:
         ip = self.pi_ip.get()
         self.log(f"Connecting to {ip}:{self.pi_port}...")
         
+        # Stop local camera if running
+        if self.use_local_camera:
+            self.log("Stopping local camera...")
+            self.stop_local_camera()
+        
         # Test connection first
         try:
             response = requests.get(f"http://{ip}:{self.pi_port}/status", timeout=3)
             if response.status_code != 200:
                 self.log("✗ Connection failed: Server not responding", 'ERROR')
                 messagebox.showerror("Connection Error", "Cannot reach Raspberry Pi server")
+                # Restart local camera
+                self.root.after(1000, self.check_and_start_local_camera)
                 return
         except Exception as e:
             self.log(f"✗ Connection failed: {str(e)}", 'ERROR')
             messagebox.showerror("Connection Error", f"Cannot reach Raspberry Pi:\n{str(e)}")
+            # Restart local camera
+            self.root.after(1000, self.check_and_start_local_camera)
             return
         
         # Start video stream
@@ -507,6 +659,9 @@ class LaptopClientGUI:
         self.status_text.config(text="Disconnected")
         
         self.log("✓ Disconnected", 'SUCCESS')
+        
+        # Restart local camera after disconnect
+        self.root.after(1000, self.check_and_start_local_camera)
     
     def video_stream_worker(self):
         """Background thread for video streaming with optional detection"""
