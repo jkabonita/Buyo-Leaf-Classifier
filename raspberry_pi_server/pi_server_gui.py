@@ -307,7 +307,7 @@ def command():
             'params': params
         })
         
-        # Execute arm action
+        # Execute arm action (uploads are handled locally on laptop)
         result = execute_arm_action(action, params)
         
         return jsonify({'status': 'success', 'result': result})

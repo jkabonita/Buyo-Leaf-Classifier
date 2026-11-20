@@ -26,6 +26,8 @@ import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
 from torchvision import models
+import os
+import platform
 
 # ============================================================================
 # CONFIGURATION
@@ -54,7 +56,20 @@ BUYO_CONFIDENCE_MIN = 0.40
 # ============================================================================
 # ML MODEL LOADING
 # ============================================================================
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Auto-detect best available device
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+    device_name = torch.cuda.get_device_name(0)
+    print(f"🎮 GPU detected: {device_name}")
+    print(f"   CUDA Version: {torch.version.cuda}")
+else:
+    device = torch.device('cpu')
+    print(f"💻 No CUDA GPU detected, using CPU")
+    print(f"   To enable GPU acceleration:")
+    print(f"   1. Install NVIDIA drivers")
+    print(f"   2. Run: install_pytorch_cuda.bat")
+
 model_loaded = False
 model = None
 preprocess = None
@@ -104,16 +119,13 @@ def load_model():
         else:  # efficientnet
             model = models.efficientnet_v2_s(weights=None)
             in_f = model.classifier[1].in_features
+            # Simple architecture matching the saved checkpoint
             model.classifier = nn.Sequential(
                 nn.Dropout(p=0.35, inplace=True),  # 0
-                nn.Linear(in_f, 512),                # 1
+                nn.Linear(in_f, 512),                # 1 (1280 -> 512)
                 nn.SiLU(),                           # 2
-                nn.BatchNorm1d(512),                 # 3
-                nn.Dropout(p=0.25),                  # 4
-                nn.Linear(512, 256),                 # 5
-                nn.SiLU(),                           # 6
-                nn.Dropout(p=0.15),                  # 7
-                nn.Linear(256, 5),                   # 8
+                nn.Dropout(p=0.25),                  # 3
+                nn.Linear(512, 5),                   # 4 (512 -> 5 classes)
             )
         
         print(f"  Loading state dict...")
@@ -256,9 +268,10 @@ class LaptopClientGUI:
         self.video_stop_event = threading.Event()
         self.command_queue = queue.Queue()
         
-        # Current frame
+        # Current frame and detection
         self.current_frame = None
         self.frame_lock = threading.Lock()
+        self.last_detection = None  # Store last detection result
         
         self.setup_ui()
         self.start_command_processor()
@@ -341,8 +354,8 @@ class LaptopClientGUI:
         btn_grid.pack(padx=10, pady=10)
         
         buttons = [
-            ("📤 Batch Upload", lambda: self.send_command('batch_upload'), 0, 0, 2),
-            ("📷 Single Upload", lambda: self.send_command('single_upload'), 1, 0, 2),
+            ("� Save Single", lambda: self.send_command('single_upload'), 1, 0, 2),
+            ("� Save Batch", lambda: self.send_command('batch_upload'), 0, 0, 2),
             ("🦾 Test Arm #1", lambda: self.send_command('test', {'arm': 1}), 2, 0, 1),
             ("🦾 Test Arm #2", lambda: self.send_command('test', {'arm': 2}), 2, 1, 1),
             ("🏠 Home All", lambda: self.send_command('home'), 3, 0, 2),
@@ -548,8 +561,12 @@ class LaptopClientGUI:
                                 self.root.after(0, lambda: self.detection_status.config(
                                     text=status_text, fg=status_color))
                                 
-                                # Log detection
+                                # Store last detection result
                                 if result['detected']:
+                                    self.last_detection = {
+                                        'class': result['class'],
+                                        'confidence': result['confidence']
+                                    }
                                     self.log(f"🎯 Detected: {result['class']} ({result['confidence']*100:.1f}%)", 'SUCCESS')
                                     # Auto-trigger arm if configured
                                     # self.send_command('drop', {'arm': 1, 'class': result['class']})
@@ -602,8 +619,209 @@ class LaptopClientGUI:
         
         self.last_command_time = current_time
         
+        # Handle upload commands specially
+        if action == 'single_upload':
+            self.upload_current_frame()
+            return
+        elif action == 'batch_upload':
+            self.upload_batch_frames()
+            return
+        
         # Queue command for background processing
         self.command_queue.put({'action': action, 'params': params or {}})
+    
+    def upload_current_frame(self):
+        """Save the current frame locally with detection class"""
+        if self.current_frame is None:
+            self.log("✗ No frame to save", 'WARNING')
+            return
+        
+        if self.last_detection is None:
+            self.log("⚠ No detection yet, saving as UNKNOWN", 'WARNING')
+            class_name = 'UNKNOWN'
+            confidence = 0.0
+        else:
+            class_name = self.last_detection['class']
+            confidence = self.last_detection['confidence']
+        
+        self.log(f"� Saving frame as {class_name} ({confidence*100:.1f}%)")
+        
+        def save():
+            try:
+                # Create local directory for saved images
+                save_dir = f"saved_images/{class_name}"
+                os.makedirs(save_dir, exist_ok=True)
+                
+                # Generate filename with timestamp
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{class_name}_{timestamp}_{confidence:.3f}.jpg"
+                filepath = os.path.join(save_dir, filename)
+                
+                # Convert and save frame
+                frame_rgb = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(frame_rgb)
+                pil_img.save(filepath, format='JPEG', quality=95)
+                
+                self.log(f"✓ Saved locally: {filepath}", 'SUCCESS')
+            
+            except Exception as e:
+                self.log(f"✗ Save error: {str(e)}", 'ERROR')
+        
+        threading.Thread(target=save, daemon=True).start()
+    
+    def upload_batch_frames(self):
+        """Save batch of recent frames locally with classification review"""
+        self.log("💾 Starting batch save...")
+        
+        if self.current_frame is None:
+            self.log("✗ No frames to save", 'WARNING')
+            return
+        
+        # Collect frames to save (currently just the current frame, but can be expanded to buffer)
+        frames_to_save = []
+        
+        # If we have detection, use it; otherwise classify the frame now
+        if self.last_detection is None and model_loaded:
+            self.log("⏳ Running detection for batch...", 'INFO')
+            # Run detection on current frame
+            result = detect_target(self.current_frame)
+            if result['detected']:
+                frames_to_save.append({
+                    'frame': self.current_frame.copy(),
+                    'class': result['class'],
+                    'confidence': result['confidence']
+                })
+            else:
+                frames_to_save.append({
+                    'frame': self.current_frame.copy(),
+                    'class': 'UNKNOWN',
+                    'confidence': 0.0
+                })
+        elif self.last_detection:
+            frames_to_save.append({
+                'frame': self.current_frame.copy(),
+                'class': self.last_detection['class'],
+                'confidence': self.last_detection['confidence']
+            })
+        else:
+            frames_to_save.append({
+                'frame': self.current_frame.copy(),
+                'class': 'UNKNOWN',
+                'confidence': 0.0
+            })
+        
+        def save_batch():
+            try:
+                # Create local directory
+                batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+                saved_items = []
+                
+                for idx, item in enumerate(frames_to_save[:100]):  # Max 100 photos
+                    class_name = item['class']
+                    confidence = item['confidence']
+                    
+                    save_dir = f"saved_images/{class_name}/batch_{batch_id}"
+                    os.makedirs(save_dir, exist_ok=True)
+                    
+                    # Save frame
+                    frame_rgb = cv2.cvtColor(item['frame'], cv2.COLOR_BGR2RGB)
+                    pil_img = Image.fromarray(frame_rgb)
+                    
+                    filename = f"{class_name}_{confidence:.3f}_{idx:03d}.jpg"
+                    filepath = os.path.join(save_dir, filename)
+                    pil_img.save(filepath, format='JPEG', quality=95)
+                    
+                    saved_items.append({
+                        'filename': filename,
+                        'class': class_name,
+                        'confidence': confidence,
+                        'path': filepath,
+                        'thumbnail': pil_img.resize((100, 100), Image.Resampling.LANCZOS)
+                    })
+                
+                self.log(f"✓ Batch saved: {len(saved_items)} image(s) to {save_dir}/", 'SUCCESS')
+                
+                # Show review dialog on main thread
+                self.root.after(0, lambda: self.show_batch_review_dialog(saved_items, batch_id))
+            
+            except Exception as e:
+                self.log(f"✗ Batch save error: {str(e)}", 'ERROR')
+        
+        threading.Thread(target=save_batch, daemon=True).start()
+    
+    def show_batch_review_dialog(self, saved_items, batch_id):
+        """Show a dialog reviewing the batch upload with thumbnails and classifications"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Batch Upload Review - {batch_id}")
+        dialog.geometry("800x600")
+        dialog.configure(bg='#2b2b2b')
+        
+        # Title
+        title_label = tk.Label(dialog, text=f"📦 Batch Upload Complete - {len(saved_items)} Images",
+                              font=('Arial', 14, 'bold'), bg='#2b2b2b', fg='#ffffff')
+        title_label.pack(pady=10)
+        
+        # Stats summary
+        stats_frame = tk.Frame(dialog, bg='#1e1e1e')
+        stats_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Count by class
+        class_counts = {}
+        for item in saved_items:
+            class_name = item['class']
+            class_counts[class_name] = class_counts.get(class_name, 0) + 1
+        
+        stats_text = "Distribution: " + " | ".join([f"{cls}: {cnt}" for cls, cnt in sorted(class_counts.items())])
+        tk.Label(stats_frame, text=stats_text, font=('Arial', 10), 
+                bg='#1e1e1e', fg='#4caf50').pack(pady=5)
+        
+        # Scrollable frame for images
+        canvas = tk.Canvas(dialog, bg='#2b2b2b', highlightthickness=0)
+        scrollbar = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#2b2b2b')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Grid of images (4 columns)
+        for idx, item in enumerate(saved_items):
+            row = idx // 4
+            col = idx % 4
+            
+            item_frame = tk.Frame(scrollable_frame, bg='#1e1e1e', relief=tk.RIDGE, bd=2)
+            item_frame.grid(row=row, column=col, padx=5, pady=5, sticky='nsew')
+            
+            # Thumbnail
+            thumbnail_tk = ImageTk.PhotoImage(item['thumbnail'])
+            img_label = tk.Label(item_frame, image=thumbnail_tk, bg='#1e1e1e')
+            img_label.image = thumbnail_tk  # Keep reference
+            img_label.pack(padx=5, pady=5)
+            
+            # Class label
+            class_color = '#4caf50' if item['confidence'] > 0.6 else '#ffaa00' if item['confidence'] > 0.4 else '#ff4444'
+            class_label = tk.Label(item_frame, 
+                                   text=f"{item['class']}\n{item['confidence']*100:.1f}%",
+                                   font=('Arial', 8, 'bold'), bg='#1e1e1e', fg=class_color)
+            class_label.pack(pady=2)
+            
+            # Filename
+            filename_label = tk.Label(item_frame, text=item['filename'][:20], 
+                                     font=('Arial', 7), bg='#1e1e1e', fg='#888888')
+            filename_label.pack(pady=2)
+        
+        canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Close button
+        close_btn = tk.Button(dialog, text="✓ Close", command=dialog.destroy,
+                             font=('Arial', 10, 'bold'), bg='#4a90e2', fg='white',
+                             padx=30, pady=10)
+        close_btn.pack(pady=10)
     
     def start_command_processor(self):
         """Background thread for processing commands"""
@@ -655,11 +873,110 @@ class LaptopClientGUI:
 # MAIN
 # ============================================================================
 if __name__ == '__main__':
-    print("="*64)
+    print("="*70)
     print("  Buyo Classifier - Laptop Client")
-    print("="*64)
+    print("="*70)
     print(f"  Device: {device}")
-    print("="*64)
+    print("="*70)
+    
+    # Detect connected peripherals
+    print("\n" + "="*70)
+    print("  CONNECTED PERIPHERALS")
+    print("="*70)
+    
+    # System info
+    print("\n📋 System Information:")
+    print(f"  OS: {platform.system()} {platform.release()}")
+    print(f"  Machine: {platform.machine()}")
+    print(f"  Python: {platform.python_version()}")
+    print(f"  PyTorch: {torch.__version__}")
+    
+    # GPU/CUDA Detection
+    print(f"\n🎮 GPU & Acceleration:")
+    print(f"  CUDA Available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"  CUDA Version: {torch.version.cuda}")
+        print(f"  GPU Device: {torch.cuda.get_device_name(0)}")
+        print(f"  GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        print(f"  ✓ Using GPU acceleration")
+    else:
+        print(f"  Device: CPU only")
+        print(f"  ⚠ GPU acceleration not available")
+        if 'cpu' in torch.__version__:
+            print(f"  📝 You have CPU-only PyTorch installed")
+            print(f"  💡 To enable GPU: Run install_pytorch_cuda.bat")
+    
+    # Camera detection
+    print("\n📷 Camera Detection:")
+    available_cameras = []
+    for i in range(5):  # Check first 5 camera indices
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = int(cap.get(cv2.CAP_PROP_FPS))
+            available_cameras.append(i)
+            print(f"  ✓ Camera {i}: {width}x{height} @ {fps}fps")
+            cap.release()
+    
+    if not available_cameras:
+        print("  ✗ No local cameras detected")
+    else:
+        print(f"  Total: {len(available_cameras)} camera(s) available")
+    
+    # Storage info
+    print("\n💾 Storage Information:")
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage(os.getcwd())
+        print(f"  Working directory: {os.getcwd()}")
+        print(f"  Total: {total // (2**30)} GB")
+        print(f"  Used: {used // (2**30)} GB")
+        print(f"  Free: {free // (2**30)} GB")
+        
+        # Create save directory
+        os.makedirs("saved_images", exist_ok=True)
+        print(f"  ✓ Image save directory: saved_images/")
+    except Exception as e:
+        print(f"  ⚠ Could not get storage info: {e}")
+    
+    # Network info
+    print("\n🌐 Network Information:")
+    try:
+        import socket
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        print(f"  Hostname: {hostname}")
+        print(f"  Local IP: {local_ip}")
+    except Exception as e:
+        print(f"  ⚠ Could not get network info: {e}")
+    
+    # Python packages
+    print("\n📦 Key Python Packages:")
+    packages_to_check = {
+        'torch': torch,
+        'cv2': cv2,
+        'PIL': Image,
+        'numpy': np,
+        'requests': requests,
+    }
+    for name, module in packages_to_check.items():
+        version = getattr(module, '__version__', 'installed')
+        print(f"  ✓ {name}: {version}")
+    
+    # Model file check
+    print("\n🤖 ML Model:")
+    if os.path.exists(MODEL_PATH):
+        model_size = os.path.getsize(MODEL_PATH) / (1024*1024)
+        print(f"  ✓ Model file found: {MODEL_PATH}")
+        print(f"  Size: {model_size:.1f} MB")
+    else:
+        print(f"  ✗ Model file not found: {MODEL_PATH}")
+        print(f"  Current directory: {os.getcwd()}")
+    
+    print("\n" + "="*70)
+    print("  INITIALIZATION")
+    print("="*70)
     
     # Load model in background
     def load_model_async():
@@ -681,6 +998,7 @@ if __name__ == '__main__':
     
     threading.Thread(target=load_model_async, daemon=True).start()
     
+    print("\n🚀 Starting GUI...")
     # Start GUI
     root = tk.Tk()
     app = LaptopClientGUI(root)
