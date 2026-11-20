@@ -360,17 +360,34 @@ class LaptopClientGUI:
         btn_grid = tk.Frame(control_frame, bg='#1e1e1e')
         btn_grid.pack(padx=10, pady=10)
         
-        buttons = [
-            ("� Save Single", lambda: self.send_command('single_upload'), 1, 0, 2),
-            ("� Save Batch", lambda: self.send_command('batch_upload'), 0, 0, 2),
-            ("🦾 Test Arm #1", lambda: self.send_command('test', {'arm': 1}), 2, 0, 1),
-            ("🦾 Test Arm #2", lambda: self.send_command('test', {'arm': 2}), 2, 1, 1),
-            ("🏠 Home All", lambda: self.send_command('home'), 3, 0, 2),
-            ("💧 Drop Arm #1", lambda: self.send_command('drop', {'arm': 1, 'class': 'CLASS A'}), 4, 0, 1),
-            ("💧 Drop Arm #2", lambda: self.send_command('drop', {'arm': 2, 'class': 'CLASS B'}), 4, 1, 1),
+        # Classification buttons (always available)
+        classify_buttons = [
+            ("📷 Classify Single Image", self.classify_single_image, 0, 0, 2),
+            ("📦 Classify Batch Images", self.classify_batch_images, 1, 0, 2),
+            ("💾 Save Current Frame", self.save_current_frame, 2, 0, 2),
         ]
         
-        for text, cmd, row, col, span in buttons:
+        for text, cmd, row, col, span in classify_buttons:
+            btn = tk.Button(btn_grid, text=text, command=cmd,
+                          font=('Arial', 9, 'bold'), bg='#4caf50', fg='white',
+                          padx=10, pady=10, width=30)
+            btn.grid(row=row, column=col, columnspan=span, padx=2, pady=2, sticky='ew')
+        
+        # Separator
+        separator = tk.Label(btn_grid, text="━━━ Remote Control (Pi Only) ━━━",
+                            font=('Arial', 8), bg='#1e1e1e', fg='#888888')
+        separator.grid(row=3, column=0, columnspan=2, pady=5)
+        
+        # Remote control buttons (Pi only)
+        remote_buttons = [
+            ("🦾 Test Arm #1", lambda: self.send_command('test', {'arm': 1}), 4, 0, 1),
+            ("🦾 Test Arm #2", lambda: self.send_command('test', {'arm': 2}), 4, 1, 1),
+            ("🏠 Home All", lambda: self.send_command('home'), 5, 0, 2),
+            ("💧 Drop Arm #1", lambda: self.send_command('drop', {'arm': 1, 'class': 'CLASS A'}), 6, 0, 1),
+            ("💧 Drop Arm #2", lambda: self.send_command('drop', {'arm': 2, 'class': 'CLASS B'}), 6, 1, 1),
+        ]
+        
+        for text, cmd, row, col, span in remote_buttons:
             btn = tk.Button(btn_grid, text=text, command=cmd,
                           font=('Arial', 9), bg='#4a90e2', fg='white',
                           padx=10, pady=8, width=14 if span == 1 else 30)
@@ -756,11 +773,429 @@ class LaptopClientGUI:
             self.log(f"✗ Video stream error: {str(e)}", 'ERROR')
             self.video_running = False
     
+    def classify_single_image(self):
+        """Open file dialog to classify a single image"""
+        from tkinter import filedialog
+        
+        if not model_loaded:
+            self.log("✗ Model not loaded", 'ERROR')
+            messagebox.showerror("Model Error", "ML model is not loaded. Please check console for errors.")
+            return
+        
+        # Open file dialog
+        filepath = filedialog.askopenfilename(
+            title="Select Image to Classify",
+            filetypes=[
+                ("Image files", "*.jpg *.jpeg *.png *.bmp"),
+                ("JPEG files", "*.jpg *.jpeg"),
+                ("PNG files", "*.png"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not filepath:
+            return  # User cancelled
+        
+        self.log(f"📂 Loading image: {os.path.basename(filepath)}")
+        
+        def classify():
+            try:
+                # Load image
+                img = cv2.imread(filepath)
+                if img is None:
+                    self.log(f"✗ Failed to load image", 'ERROR')
+                    self.root.after(0, lambda: messagebox.showerror("Error", "Failed to load image file"))
+                    return
+                
+                # Run detection
+                result = detect_target(img)
+                
+                # Display result
+                pred_class = result['class']
+                confidence = result['confidence']
+                
+                self.log(f"🎯 Classification: {pred_class} ({confidence*100:.1f}%)", 'SUCCESS')
+                
+                # Show result dialog with image
+                self.root.after(0, lambda: self.show_classification_result(filepath, result))
+                
+            except Exception as e:
+                self.log(f"✗ Classification error: {str(e)}", 'ERROR')
+                import traceback
+                traceback.print_exc()
+        
+        threading.Thread(target=classify, daemon=True).start()
+    
+    def classify_batch_images(self):
+        """Open file dialog to classify multiple images"""
+        from tkinter import filedialog
+        
+        if not model_loaded:
+            self.log("✗ Model not loaded", 'ERROR')
+            messagebox.showerror("Model Error", "ML model is not loaded. Please check console for errors.")
+            return
+        
+        # Open file dialog for multiple files
+        filepaths = filedialog.askopenfilenames(
+            title="Select Images to Classify",
+            filetypes=[
+                ("Image files", "*.jpg *.jpeg *.png *.bmp"),
+                ("JPEG files", "*.jpg *.jpeg"),
+                ("PNG files", "*.png"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not filepaths:
+            return  # User cancelled
+        
+        self.log(f"📦 Classifying {len(filepaths)} images...")
+        
+        def classify_batch():
+            try:
+                results = []
+                
+                for idx, filepath in enumerate(filepaths):
+                    self.log(f"[{idx+1}/{len(filepaths)}] Processing: {os.path.basename(filepath)}")
+                    
+                    # Load image
+                    img = cv2.imread(filepath)
+                    if img is None:
+                        self.log(f"  ✗ Failed to load", 'WARNING')
+                        continue
+                    
+                    # Run detection
+                    result = detect_target(img)
+                    
+                    pred_class = result['class']
+                    confidence = result['confidence']
+                    
+                    self.log(f"  → {pred_class} ({confidence*100:.1f}%)")
+                    
+                    # Store result
+                    results.append({
+                        'filepath': filepath,
+                        'filename': os.path.basename(filepath),
+                        'class': pred_class,
+                        'confidence': confidence,
+                        'probabilities': result.get('probabilities', []),
+                        'image': img
+                    })
+                
+                self.log(f"✓ Batch classification complete: {len(results)}/{len(filepaths)} images", 'SUCCESS')
+                
+                # Show batch results dialog
+                self.root.after(0, lambda: self.show_batch_classification_results(results))
+                
+            except Exception as e:
+                self.log(f"✗ Batch classification error: {str(e)}", 'ERROR')
+                import traceback
+                traceback.print_exc()
+        
+        threading.Thread(target=classify_batch, daemon=True).start()
+    
+    def save_current_frame(self):
+        """Save the current camera frame with classification"""
+        if self.current_frame is None:
+            self.log("✗ No frame to save", 'WARNING')
+            messagebox.showwarning("No Frame", "No camera frame available. Please start camera first.")
+            return
+        
+        if self.last_detection is None:
+            self.log("⚠ No detection yet, saving as UNKNOWN", 'WARNING')
+            class_name = 'UNKNOWN'
+            confidence = 0.0
+        else:
+            class_name = self.last_detection['class']
+            confidence = self.last_detection['confidence']
+        
+        self.log(f"💾 Saving frame as {class_name} ({confidence*100:.1f}%)")
+        
+        def save():
+            try:
+                # Create local directory for saved images
+                save_dir = f"saved_images/{class_name}"
+                os.makedirs(save_dir, exist_ok=True)
+                
+                # Generate filename with timestamp
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{class_name}_{timestamp}_{confidence:.3f}.jpg"
+                filepath = os.path.join(save_dir, filename)
+                
+                # Save frame
+                cv2.imwrite(filepath, self.current_frame)
+                
+                self.log(f"✓ Saved: {filepath}", 'SUCCESS')
+                messagebox.showinfo("Saved", f"Frame saved to:\n{filepath}")
+            
+            except Exception as e:
+                self.log(f"✗ Save error: {str(e)}", 'ERROR')
+        
+        threading.Thread(target=save, daemon=True).start()
+    
+    def show_classification_result(self, filepath, result):
+        """Show classification result in a dialog"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Classification Result - {os.path.basename(filepath)}")
+        dialog.geometry("700x600")
+        dialog.configure(bg='#2b2b2b')
+        
+        # Title
+        title_text = f"🎯 Classification Result"
+        title_label = tk.Label(dialog, text=title_text,
+                              font=('Arial', 16, 'bold'), bg='#2b2b2b', fg='#ffffff')
+        title_label.pack(pady=10)
+        
+        # Image preview
+        try:
+            img = cv2.imread(filepath)
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+            # Resize to fit dialog
+            h, w = img_rgb.shape[:2]
+            max_size = 400
+            if w > h:
+                new_w = max_size
+                new_h = int(h * max_size / w)
+            else:
+                new_h = max_size
+                new_w = int(w * max_size / h)
+            
+            img_resized = cv2.resize(img_rgb, (new_w, new_h))
+            pil_img = Image.fromarray(img_resized)
+            img_tk = ImageTk.PhotoImage(image=pil_img)
+            
+            img_label = tk.Label(dialog, image=img_tk, bg='#1e1e1e')
+            img_label.image = img_tk  # Keep reference
+            img_label.pack(pady=10)
+        except Exception as e:
+            self.log(f"Failed to load image preview: {e}", 'WARNING')
+        
+        # Result frame
+        result_frame = tk.Frame(dialog, bg='#1e1e1e', relief=tk.RIDGE, bd=2)
+        result_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        pred_class = result['class']
+        confidence = result['confidence']
+        
+        # Predicted class
+        color = '#4caf50' if confidence > 0.6 else '#ffaa00' if confidence > 0.4 else '#ff4444'
+        class_label = tk.Label(result_frame, text=f"Predicted Class: {pred_class}",
+                              font=('Arial', 14, 'bold'), bg='#1e1e1e', fg=color)
+        class_label.pack(pady=5)
+        
+        # Confidence
+        conf_label = tk.Label(result_frame, text=f"Confidence: {confidence*100:.2f}%",
+                             font=('Arial', 12), bg='#1e1e1e', fg='#ffffff')
+        conf_label.pack(pady=5)
+        
+        # Probability bars
+        if 'probabilities' in result:
+            probs_frame = tk.Frame(result_frame, bg='#1e1e1e')
+            probs_frame.pack(pady=10)
+            
+            tk.Label(probs_frame, text="All Class Probabilities:",
+                    font=('Arial', 10, 'bold'), bg='#1e1e1e', fg='#ffffff').pack()
+            
+            for i, cls in enumerate(CLASS_NAMES):
+                prob = result['probabilities'][i]
+                
+                bar_frame = tk.Frame(probs_frame, bg='#1e1e1e')
+                bar_frame.pack(fill=tk.X, pady=2)
+                
+                tk.Label(bar_frame, text=f"{cls}:", width=10,
+                        font=('Arial', 9), bg='#1e1e1e', fg='#ffffff', anchor='w').pack(side=tk.LEFT)
+                
+                canvas = tk.Canvas(bar_frame, width=300, height=20, bg='#2b2b2b', highlightthickness=0)
+                canvas.pack(side=tk.LEFT, padx=5)
+                
+                bar_width = int(280 * prob)
+                bar_color = color if i == result.get('class_idx', -1) else '#555555'
+                canvas.create_rectangle(2, 2, bar_width + 2, 18, fill=bar_color, outline='')
+                
+                tk.Label(bar_frame, text=f"{prob*100:.1f}%",
+                        font=('Arial', 9), bg='#1e1e1e', fg='#ffffff').pack(side=tk.LEFT)
+        
+        # Buttons
+        btn_frame = tk.Frame(dialog, bg='#2b2b2b')
+        btn_frame.pack(pady=10)
+        
+        tk.Button(btn_frame, text="✓ Close", command=dialog.destroy,
+                 font=('Arial', 10, 'bold'), bg='#4a90e2', fg='white',
+                 padx=30, pady=10).pack(side=tk.LEFT, padx=5)
+        
+        # Option to save with classification
+        def save_with_class():
+            try:
+                save_dir = f"classified_images/{pred_class}"
+                os.makedirs(save_dir, exist_ok=True)
+                
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{pred_class}_{confidence:.3f}_{timestamp}_{os.path.basename(filepath)}"
+                save_path = os.path.join(save_dir, filename)
+                
+                import shutil
+                shutil.copy2(filepath, save_path)
+                
+                messagebox.showinfo("Saved", f"Image saved to:\n{save_path}")
+                self.log(f"✓ Saved classified image: {save_path}", 'SUCCESS')
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save: {str(e)}")
+        
+        tk.Button(btn_frame, text="💾 Save to Classified Folder", command=save_with_class,
+                 font=('Arial', 10), bg='#4caf50', fg='white',
+                 padx=20, pady=10).pack(side=tk.LEFT, padx=5)
+    
+    def show_batch_classification_results(self, results):
+        """Show batch classification results in a dialog"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Batch Classification Results - {len(results)} Images")
+        dialog.geometry("900x700")
+        dialog.configure(bg='#2b2b2b')
+        
+        # Title
+        title_label = tk.Label(dialog, text=f"📦 Batch Classification Complete - {len(results)} Images",
+                              font=('Arial', 14, 'bold'), bg='#2b2b2b', fg='#ffffff')
+        title_label.pack(pady=10)
+        
+        # Stats summary
+        stats_frame = tk.Frame(dialog, bg='#1e1e1e', relief=tk.RIDGE, bd=2)
+        stats_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Count by class
+        class_counts = {}
+        for item in results:
+            class_name = item['class']
+            class_counts[class_name] = class_counts.get(class_name, 0) + 1
+        
+        stats_text = "Distribution: " + " | ".join([f"{cls}: {cnt}" for cls, cnt in sorted(class_counts.items())])
+        tk.Label(stats_frame, text=stats_text, font=('Arial', 10), 
+                bg='#1e1e1e', fg='#4caf50').pack(pady=5)
+        
+        # Average confidence
+        avg_conf = sum(r['confidence'] for r in results) / len(results) if results else 0
+        tk.Label(stats_frame, text=f"Average Confidence: {avg_conf*100:.1f}%",
+                font=('Arial', 10), bg='#1e1e1e', fg='#ffffff').pack(pady=5)
+        
+        # Scrollable frame for results
+        canvas = tk.Canvas(dialog, bg='#2b2b2b', highlightthickness=0)
+        scrollbar = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#2b2b2b')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Grid of results (3 columns)
+        for idx, item in enumerate(results):
+            row = idx // 3
+            col = idx % 3
+            
+            item_frame = tk.Frame(scrollable_frame, bg='#1e1e1e', relief=tk.RIDGE, bd=2)
+            item_frame.grid(row=row, column=col, padx=5, pady=5, sticky='nsew')
+            
+            # Thumbnail
+            try:
+                img_resized = cv2.resize(item['image'], (150, 150))
+                img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(img_rgb)
+                thumbnail_tk = ImageTk.PhotoImage(pil_img)
+                
+                img_label = tk.Label(item_frame, image=thumbnail_tk, bg='#1e1e1e')
+                img_label.image = thumbnail_tk  # Keep reference
+                img_label.pack(padx=5, pady=5)
+            except:
+                pass
+            
+            # Class label
+            class_color = '#4caf50' if item['confidence'] > 0.6 else '#ffaa00' if item['confidence'] > 0.4 else '#ff4444'
+            class_label = tk.Label(item_frame, 
+                                   text=f"{item['class']}\n{item['confidence']*100:.1f}%",
+                                   font=('Arial', 10, 'bold'), bg='#1e1e1e', fg=class_color)
+            class_label.pack(pady=2)
+            
+            # Filename
+            filename_label = tk.Label(item_frame, text=item['filename'][:25], 
+                                     font=('Arial', 8), bg='#1e1e1e', fg='#888888')
+            filename_label.pack(pady=2)
+        
+        canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Buttons
+        btn_frame = tk.Frame(dialog, bg='#2b2b2b')
+        btn_frame.pack(pady=10)
+        
+        tk.Button(btn_frame, text="✓ Close", command=dialog.destroy,
+                 font=('Arial', 10, 'bold'), bg='#4a90e2', fg='white',
+                 padx=30, pady=10).pack(side=tk.LEFT, padx=5)
+        
+        # Save all to classified folders
+        def save_all_classified():
+            try:
+                saved_count = 0
+                for item in results:
+                    save_dir = f"classified_images/{item['class']}"
+                    os.makedirs(save_dir, exist_ok=True)
+                    
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    filename = f"{item['class']}_{item['confidence']:.3f}_{timestamp}_{item['filename']}"
+                    save_path = os.path.join(save_dir, filename)
+                    
+                    import shutil
+                    shutil.copy2(item['filepath'], save_path)
+                    saved_count += 1
+                
+                messagebox.showinfo("Saved", f"Saved {saved_count} images to classified_images/ folder")
+                self.log(f"✓ Saved {saved_count} classified images", 'SUCCESS')
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save: {str(e)}")
+        
+        tk.Button(btn_frame, text="💾 Save All to Classified Folders", command=save_all_classified,
+                 font=('Arial', 10), bg='#4caf50', fg='white',
+                 padx=20, pady=10).pack(side=tk.LEFT, padx=5)
+        
+        # Export to CSV
+        def export_csv():
+            from tkinter import filedialog
+            csv_path = filedialog.asksaveasfilename(
+                title="Export Results to CSV",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            )
+            
+            if csv_path:
+                try:
+                    import csv
+                    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(['Filename', 'Filepath', 'Predicted Class', 'Confidence'] + 
+                                      [f'Prob_{cls}' for cls in CLASS_NAMES])
+                        
+                        for item in results:
+                            row = [item['filename'], item['filepath'], item['class'], 
+                                  f"{item['confidence']:.4f}"]
+                            row.extend([f"{p:.4f}" for p in item['probabilities']])
+                            writer.writerow(row)
+                    
+                    messagebox.showinfo("Exported", f"Results exported to:\n{csv_path}")
+                    self.log(f"✓ Exported results to CSV: {csv_path}", 'SUCCESS')
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to export: {str(e)}")
+        
+        tk.Button(btn_frame, text="📊 Export to CSV", command=export_csv,
+                 font=('Arial', 10), bg='#ff9800', fg='white',
+                 padx=20, pady=10).pack(side=tk.LEFT, padx=5)
+    
     def send_command(self, action, params=None):
         """Send command to Raspberry Pi with cooldown"""
         if not self.connected:
             self.log("✗ Not connected to Raspberry Pi", 'WARNING')
-            messagebox.showwarning("Not Connected", "Please connect to Raspberry Pi first")
+            messagebox.showwarning("Not Connected", "Remote control requires Raspberry Pi connection")
             return
         
         # Check cooldown
@@ -773,14 +1208,6 @@ class LaptopClientGUI:
             return
         
         self.last_command_time = current_time
-        
-        # Handle upload commands specially
-        if action == 'single_upload':
-            self.upload_current_frame()
-            return
-        elif action == 'batch_upload':
-            self.upload_batch_frames()
-            return
         
         # Queue command for background processing
         self.command_queue.put({'action': action, 'params': params or {}})
