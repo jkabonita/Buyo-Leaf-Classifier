@@ -3,12 +3,13 @@
 Laptop Client GUI - Buyo Leaf Classifier
 ========================================
 Full GUI client application for laptop with:
-- Connect to Raspberry Pi server
+- Connect to Raspberry Pi server (with auto-discovery)
 - Live MJPEG video feed display
 - Vision detection with ML model
 - Manual control buttons
 - Activity logging
 - Non-blocking networking
+- Network auto-discovery and IP scanning
 """
 
 import tkinter as tk
@@ -28,6 +29,8 @@ import torchvision.transforms as transforms
 from torchvision import models
 import os
 import platform
+import socket
+import json
 
 # ============================================================================
 # CONFIGURATION
@@ -37,6 +40,116 @@ DEFAULT_PORT = 5000
 VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 480
 COMMAND_COOLDOWN = 2.0  # seconds between commands
+
+# Network discovery settings
+SAVED_IP_FILE = "last_pi_ip.txt"
+NETWORK_SCAN_TIMEOUT = 0.5  # seconds per IP
+COMMON_PI_PORTS = [5000, 8080, 80]
+
+# ============================================================================
+# NETWORK DISCOVERY FUNCTIONS
+# ============================================================================
+
+def load_saved_ip():
+    """Load last successful Pi IP from file"""
+    try:
+        if os.path.exists(SAVED_IP_FILE):
+            with open(SAVED_IP_FILE, 'r') as f:
+                return f.read().strip()
+    except:
+        pass
+    return DEFAULT_PI_IP
+
+def save_pi_ip(ip_address):
+    """Save successful Pi IP to file"""
+    try:
+        with open(SAVED_IP_FILE, 'w') as f:
+            f.write(ip_address)
+    except:
+        pass
+
+def get_local_ip():
+    """Get local machine IP address"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except:
+        return "127.0.0.1"
+
+def get_network_prefix():
+    """Get network prefix from local IP (e.g., 192.168.1)"""
+    local_ip = get_local_ip()
+    parts = local_ip.split('.')
+    return '.'.join(parts[:3])
+
+def check_pi_server(ip, port=DEFAULT_PORT, timeout=NETWORK_SCAN_TIMEOUT):
+    """Check if Pi server is running at given IP"""
+    try:
+        url = f"http://{ip}:{port}/status"
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200:
+            data = response.json()
+            # Verify it's our Pi server
+            if 'camera' in data or 'status' in data:
+                return True
+    except:
+        pass
+    return False
+
+def scan_network_for_pi(progress_callback=None):
+    """
+    Scan local network for Raspberry Pi server
+    Returns list of (ip, port) tuples where server was found
+    """
+    results = []
+    network_prefix = get_network_prefix()
+    
+    print(f"🔍 Scanning network {network_prefix}.x for Pi server...")
+    
+    # Common IPs to check first (faster)
+    priority_ips = [
+        load_saved_ip(),  # Last successful IP
+        f"{network_prefix}.100",
+        f"{network_prefix}.101",
+        f"{network_prefix}.105",
+        f"{network_prefix}.10",
+        f"{network_prefix}.20",
+    ]
+    
+    # Check priority IPs first
+    for ip in priority_ips:
+        if progress_callback:
+            progress_callback(f"Checking {ip}...")
+        
+        for port in COMMON_PI_PORTS:
+            if check_pi_server(ip, port):
+                print(f"  ✓ Found Pi server at {ip}:{port}")
+                results.append((ip, port))
+                return results  # Return immediately on first find
+    
+    # If not found, scan full range (this can take time)
+    if progress_callback:
+        progress_callback("Scanning full network range...")
+    
+    for i in range(1, 255):
+        ip = f"{network_prefix}.{i}"
+        
+        if ip in priority_ips:
+            continue  # Already checked
+        
+        if progress_callback and i % 10 == 0:
+            progress_callback(f"Scanning {ip}...")
+        
+        for port in COMMON_PI_PORTS:
+            if check_pi_server(ip, port, timeout=0.2):  # Faster timeout for full scan
+                print(f"  ✓ Found Pi server at {ip}:{port}")
+                results.append((ip, port))
+                return results  # Return on first find
+    
+    return results
 
 # ML Model Configuration
 import os
@@ -472,7 +585,7 @@ class LaptopClientGUI:
         self.root.configure(bg='#2b2b2b')
         
         # Connection state
-        self.pi_ip = tk.StringVar(value=DEFAULT_PI_IP)
+        self.pi_ip = tk.StringVar(value=load_saved_ip())  # Load last successful IP
         self.pi_port = DEFAULT_PORT
         self.connected = False
         self.video_running = False
@@ -528,6 +641,10 @@ class LaptopClientGUI:
         # Test connection button
         tk.Button(top_frame, text="🔍 Test", command=self.test_connection,
                  font=('Arial', 9), bg='#555555', fg='white', padx=10).pack(side=tk.LEFT, padx=5)
+        
+        # Auto-discover button
+        tk.Button(top_frame, text="🔎 Find Pi", command=self.auto_discover_pi,
+                 font=('Arial', 9), bg='#9c27b0', fg='white', padx=10).pack(side=tk.LEFT, padx=5)
         
         # ===== MAIN CONTENT =====
         content_frame = tk.Frame(self.root, bg='#2b2b2b')
@@ -667,6 +784,67 @@ class LaptopClientGUI:
             update_log()
         else:
             self.root.after(0, update_log)
+    
+    def auto_discover_pi(self):
+        """Auto-discover Raspberry Pi on network"""
+        self.log("🔎 Searching for Raspberry Pi on network...")
+        
+        # Create progress dialog
+        progress_dialog = tk.Toplevel(self.root)
+        progress_dialog.title("Discovering Raspberry Pi")
+        progress_dialog.geometry("400x150")
+        progress_dialog.configure(bg='#2b2b2b')
+        progress_dialog.transient(self.root)
+        progress_dialog.grab_set()
+        
+        # Center dialog
+        progress_dialog.update_idletasks()
+        x = (progress_dialog.winfo_screenwidth() // 2) - 200
+        y = (progress_dialog.winfo_screenheight() // 2) - 75
+        progress_dialog.geometry(f"400x150+{x}+{y}")
+        
+        status_label = tk.Label(progress_dialog, text="Scanning network...",
+                               font=('Arial', 10), bg='#2b2b2b', fg='#ffffff')
+        status_label.pack(pady=20)
+        
+        progress_bar = ttk.Progressbar(progress_dialog, mode='indeterminate', length=300)
+        progress_bar.pack(pady=10)
+        progress_bar.start()
+        
+        def update_status(text):
+            status_label.config(text=text)
+            progress_dialog.update()
+        
+        def discover():
+            try:
+                results = scan_network_for_pi(update_status)
+                
+                progress_bar.stop()
+                progress_dialog.destroy()
+                
+                if results:
+                    ip, port = results[0]
+                    self.pi_ip.set(ip)
+                    self.pi_port = port
+                    save_pi_ip(ip)
+                    
+                    self.log(f"✓ Found Pi server at {ip}:{port}", 'SUCCESS')
+                    messagebox.showinfo("Pi Found", 
+                                       f"Raspberry Pi server found at:\n{ip}:{port}\n\nClick Connect to establish connection.")
+                else:
+                    self.log("✗ No Pi server found on network", 'WARNING')
+                    messagebox.showwarning("Not Found", 
+                                          "Could not find Raspberry Pi server on local network.\n\n"
+                                          "Please ensure:\n"
+                                          "1. Pi server is running\n"
+                                          "2. Both devices on same WiFi\n"
+                                          "3. Pi firewall allows port 5000")
+            except Exception as e:
+                progress_bar.stop()
+                progress_dialog.destroy()
+                self.log(f"✗ Discovery error: {str(e)}", 'ERROR')
+        
+        threading.Thread(target=discover, daemon=True).start()
     
     def test_connection(self):
         """Test connection to Raspberry Pi"""
@@ -835,7 +1013,7 @@ class LaptopClientGUI:
             self.disconnect()
     
     def connect(self):
-        """Connect to Raspberry Pi and start video stream"""
+        """Connect to Raspberry Pi and start video stream with retry logic"""
         ip = self.pi_ip.get()
         self.log(f"Connecting to {ip}:{self.pi_port}...")
         
@@ -844,21 +1022,48 @@ class LaptopClientGUI:
             self.log("Stopping local camera...")
             self.stop_local_camera()
         
-        # Test connection first
-        try:
-            response = requests.get(f"http://{ip}:{self.pi_port}/status", timeout=3)
-            if response.status_code != 200:
-                self.log("✗ Connection failed: Server not responding", 'ERROR')
-                messagebox.showerror("Connection Error", "Cannot reach Raspberry Pi server")
-                # Restart local camera
-                self.root.after(1000, self.check_and_start_local_camera)
-                return
-        except Exception as e:
-            self.log(f"✗ Connection failed: {str(e)}", 'ERROR')
-            messagebox.showerror("Connection Error", f"Cannot reach Raspberry Pi:\n{str(e)}")
-            # Restart local camera
-            self.root.after(1000, self.check_and_start_local_camera)
-            return
+        # Test connection first with retry
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.log(f"Connection attempt {attempt + 1}/{max_retries}...")
+                response = requests.get(f"http://{ip}:{self.pi_port}/status", timeout=5)
+                if response.status_code == 200:
+                    # Connection successful
+                    self.log(f"✓ Connection test successful", 'SUCCESS')
+                    break
+            except requests.exceptions.Timeout:
+                self.log(f"✗ Attempt {attempt + 1} timed out", 'WARNING')
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                else:
+                    self.log("✗ Connection failed: Server not responding", 'ERROR')
+                    messagebox.showerror("Connection Error", 
+                                        f"Cannot reach Raspberry Pi at {ip}:{self.pi_port}\n\n"
+                                        f"Server is not responding.\n\n"
+                                        f"Solutions:\n"
+                                        f"1. Click 'Find Pi' to auto-discover\n"
+                                        f"2. Verify Pi server is running\n"
+                                        f"3. Check both devices on same WiFi\n"
+                                        f"4. Try manual IP entry")
+                    self.root.after(1000, self.check_and_start_local_camera)
+                    return
+            except Exception as e:
+                self.log(f"✗ Attempt {attempt + 1} failed: {str(e)}", 'WARNING')
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                else:
+                    self.log(f"✗ Connection failed: {str(e)}", 'ERROR')
+                    messagebox.showerror("Connection Error", 
+                                        f"Cannot reach Raspberry Pi:\n{str(e)}\n\n"
+                                        f"Click 'Find Pi' to auto-discover on network")
+                    self.root.after(1000, self.check_and_start_local_camera)
+                    return
+        
+        # Save successful IP
+        save_pi_ip(ip)
         
         # Start video stream
         self.connected = True
@@ -1880,6 +2085,16 @@ if __name__ == '__main__':
     # Camera detection
     print("\n📷 Camera Detection:")
     available_cameras = []
+    
+    # Suppress OpenCV warnings during camera detection
+    import warnings
+    import sys
+    import os
+    
+    # Redirect stderr temporarily to suppress OpenCV camera detection warnings
+    stderr_backup = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
+    
     for i in range(5):  # Check first 5 camera indices
         cap = cv2.VideoCapture(i)
         if cap.isOpened():
@@ -1887,13 +2102,24 @@ if __name__ == '__main__':
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = int(cap.get(cv2.CAP_PROP_FPS))
             available_cameras.append(i)
-            print(f"  ✓ Camera {i}: {width}x{height} @ {fps}fps")
             cap.release()
     
-    if not available_cameras:
-        print("  ✗ No local cameras detected")
-    else:
+    # Restore stderr
+    sys.stderr.close()
+    sys.stderr = stderr_backup
+    
+    # Now print results
+    if available_cameras:
+        for cam_id in available_cameras:
+            cap = cv2.VideoCapture(cam_id)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = int(cap.get(cv2.CAP_PROP_FPS))
+            print(f"  ✓ Camera {cam_id}: {width}x{height} @ {fps}fps")
+            cap.release()
         print(f"  Total: {len(available_cameras)} camera(s) available")
+    else:
+        print("  ✗ No local cameras detected")
     
     # Storage info
     print("\n💾 Storage Information:")
