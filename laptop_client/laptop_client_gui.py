@@ -1219,25 +1219,26 @@ class LaptopClientGUI:
         
         pred_class = result['class']
         confidence = result['confidence']
-        is_buyo = result.get('is_buyo', confidence >= BUYO_CONFIDENCE_MIN)
+        is_buyo = result.get('is_buyo', True)  # Default to True if not specified
         
-        # Determine display based on confidence and buyo status
-        if not is_buyo:
+        # Determine display based on confidence
+        # Always show the predicted class unless it's explicitly "NO GREEN"
+        if pred_class == 'NO GREEN':
             display_class = "NO BUYO"
-            display_color = '#ff4444'
-            status_msg = "⚠️ Low confidence - May not be a Buyo leaf"
+            display_color = '#888888'
+            status_msg = "No green leaf detected in image"
         elif confidence >= DETECTION_THRESHOLD:
             display_class = pred_class
             display_color = '#4caf50'
-            status_msg = f"✅ High Confidence - Buyo leaf detected: {pred_class}"
-        elif confidence >= BUYO_CONFIDENCE_MIN:
+            status_msg = f"High Confidence - Buyo leaf: {pred_class}"
+        elif confidence >= 0.30:
             display_class = pred_class
             display_color = '#ffaa00'
-            status_msg = f"⚠️ Medium Confidence - Likely: {pred_class}"
+            status_msg = f"Medium Confidence - Likely: {pred_class}"
         else:
-            display_class = "NO BUYO"
-            display_color = '#888888'
-            status_msg = "❓ Very Low Confidence - Classification uncertain"
+            display_class = pred_class
+            display_color = '#ff8888'
+            status_msg = f"Low Confidence - Uncertain: {pred_class}"
         
         # Status message
         status_label = tk.Label(result_frame, text=status_msg,
