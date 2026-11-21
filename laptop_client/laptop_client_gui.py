@@ -86,19 +86,20 @@ def load_model():
             print(f"   Current directory: {os.getcwd()}")
             print(f"   Looking for: {os.path.abspath(MODEL_PATH)}")
             print(f"\n   SOLUTION: Run the client from the project root directory:")
-            print(f"   cd ~/Desktop/Buyo-Leaf-Classifier")
-            print(f"   python3 laptop_client/laptop_client_gui.py")
+            print(f"   cd ~/Desktop/BUYO-LEAVES")
+            print(f"   python laptop_client/laptop_client_gui.py")
             return False
         
-        print(f"Loading model from {MODEL_PATH}...")
-        print(f"  File size: {os.path.getsize(MODEL_PATH) / (1024*1024):.1f} MB")
+        print(f"⏳ Loading model from {MODEL_PATH}...")
+        print(f"   File size: {os.path.getsize(MODEL_PATH) / (1024*1024):.1f} MB")
         
-        ckpt = torch.load(MODEL_PATH, map_location=device)
+        ckpt = torch.load(MODEL_PATH, map_location=device, weights_only=False)
         backbone = ckpt.get('backbone', 'efficientnet_v2_s')
-        print(f"  Backbone: {backbone}")
+        print(f"   Backbone: {backbone}")
         
         # Build model architecture
         if 'convnext' in backbone:
+            print(f"   Building ConvNeXt-Tiny architecture...")
             model = models.convnext_tiny(weights=None)
             in_f = model.classifier[2].in_features
             model.classifier = nn.Sequential(
@@ -109,6 +110,7 @@ def load_model():
                 nn.Dropout(p=0.15), nn.Linear(256, 5),
             )
         elif 'resnet' in backbone:
+            print(f"   Building ResNet50 architecture...")
             model = models.resnet50(weights=None)
             in_f = model.fc.in_features
             model.fc = nn.Sequential(
@@ -118,6 +120,7 @@ def load_model():
                 nn.Linear(256, 5),
             )
         else:  # efficientnet
+            print(f"   Building EfficientNetV2-S architecture...")
             model = models.efficientnet_v2_s(weights=None)
             in_f = model.classifier[1].in_features
             # Simple architecture matching the saved checkpoint
@@ -129,11 +132,11 @@ def load_model():
                 nn.Linear(512, 5),                   # 4 (512 -> 5 classes)
             )
         
-        print(f"  Loading state dict...")
+        print(f"   Loading state dict...")
         model.load_state_dict(ckpt['state_dict'])
         model = model.to(device)
         model.eval()
-        print(f"  Model moved to {device}")
+        print(f"   Model moved to {device}")
         
         # Setup preprocessing
         preprocess = transforms.Compose([
@@ -143,14 +146,16 @@ def load_model():
         ])
         
         model_loaded = True
-        print(f"\n✓ Model loaded successfully!")
-        print(f"  Classes: {CLASS_NAMES}")
-        print(f"  Threshold: {DETECTION_THRESHOLD*100}%")
+        print(f"\n✅ MODEL LOADED SUCCESSFULLY!")
+        print(f"   Classes: {CLASS_NAMES}")
+        print(f"   Detection Threshold: {DETECTION_THRESHOLD*100}%")
+        print(f"   Buyo Confidence Min: {BUYO_CONFIDENCE_MIN*100}%")
+        print(f"   Auto-Detection: {'ENABLED' if AUTO_DETECTION else 'DISABLED'}")
         return True
         
     except Exception as e:
-        print(f"\n✗ Model loading failed!")
-        print(f"  Error: {e}")
+        print(f"\n❌ MODEL LOADING FAILED!")
+        print(f"   Error: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -232,8 +237,8 @@ def detect_target(frame):
             conf_text = f"{confidence*100:.1f}%"
             
             # Get text size for background
-            (class_w, class_h), _ = cv2.getTextSize(class_text, cv2.FONT_HERSHEY_BOLD, 1.5, 3)
-            (conf_w, conf_h), _ = cv2.getTextSize(conf_text, cv2.FONT_HERSHEY_BOLD, 1.2, 3)
+            (class_w, class_h), _ = cv2.getTextSize(class_text, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 3)
+            (conf_w, conf_h), _ = cv2.getTextSize(conf_text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
             
             # Center position
             center_x = w // 2
@@ -252,7 +257,7 @@ def detect_target(frame):
             # Draw class text
             cv2.putText(annotated, class_text, 
                        (center_x - class_w//2, center_y - 25),
-                       cv2.FONT_HERSHEY_BOLD, 1.5, color, 3)
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 3)
             
             # Draw background for confidence
             cv2.rectangle(annotated,
@@ -263,7 +268,7 @@ def detect_target(frame):
             # Draw confidence text
             cv2.putText(annotated, conf_text,
                        (center_x - conf_w//2, center_y + 40),
-                       cv2.FONT_HERSHEY_BOLD, 1.2, (255, 255, 255), 3)
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
             
             # Status at top
             cv2.putText(annotated, status, (10, 30),
@@ -1762,20 +1767,26 @@ if __name__ == '__main__':
     # Load model in background
     def load_model_async():
         global app
+        print("\n" + "="*70)
+        print("  LOADING ML MODEL")
+        print("="*70)
+        
         if load_model():
-            print("✓ ML model loaded - detection ready")
+            print("\n✅ ML MODEL READY - AUTO-DETECTION ACTIVE")
             if 'app' in globals():
                 app.root.after(0, lambda: app.model_status_label.config(
-                    text="Model: ✓ LOADED", fg='#4caf50'))
+                    text="Model: ✅ LOADED", fg='#4caf50'))
                 app.root.after(0, lambda: app.status_text.config(
-                    text="Model loaded - detection ready"))
+                    text="Model loaded - Auto-detection active"))
+                app.root.after(0, lambda: app.log("✅ Model loaded - Auto-detection ready", 'SUCCESS'))
         else:
-            print("⚠ ML model not loaded - detection unavailable")
+            print("\n❌ ML MODEL FAILED - DETECTION UNAVAILABLE")
             if 'app' in globals():
                 app.root.after(0, lambda: app.model_status_label.config(
-                    text="Model: ✗ NOT LOADED", fg='#ff4444'))
+                    text="Model: ❌ FAILED", fg='#ff4444'))
                 app.root.after(0, lambda: app.status_text.config(
                     text="Model failed to load - check console for errors"))
+                app.root.after(0, lambda: app.log("❌ Model loading failed - check console", 'ERROR'))
     
     threading.Thread(target=load_model_async, daemon=True).start()
     
