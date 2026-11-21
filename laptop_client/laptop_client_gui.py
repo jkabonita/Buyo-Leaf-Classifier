@@ -50,8 +50,9 @@ else:
 
 CLASS_NAMES = ['CLASS A', 'CLASS B', 'CLASS C', 'CLASS D', 'CLASS E']
 IMG_SIZE = 224
-DETECTION_THRESHOLD = 0.60
-BUYO_CONFIDENCE_MIN = 0.40
+DETECTION_THRESHOLD = 0.60  # Minimum confidence to consider as Buyo leaf
+BUYO_CONFIDENCE_MIN = 0.45  # Minimum confidence to show any class
+AUTO_DETECTION = True  # Always run detection automatically
 
 # ============================================================================
 # ML MODEL LOADING
@@ -156,9 +157,9 @@ def load_model():
 
 def detect_target(frame):
     """
-    Vision detection placeholder - detect buyo leaves in frame
+    Vision detection - detect Buyo leaves in frame
     
-    ⚠️ PLUG IN YOUR AI MODEL (YOLO/OpenCV) HERE ⚠️
+    Returns only valid Buyo leaf detections with confidence above threshold
     
     Args:
         frame: OpenCV BGR image (numpy array)
@@ -166,7 +167,8 @@ def detect_target(frame):
     Returns:
         dict with detection results:
         {
-            'detected': bool,
+            'detected': bool,  # True if Buyo leaf detected
+            'is_buyo': bool,   # True if this is likely a Buyo leaf
             'class': str,
             'confidence': float,
             'bbox': (x1, y1, x2, y2) or None,
@@ -176,6 +178,7 @@ def detect_target(frame):
     if not model_loaded or model is None:
         return {
             'detected': False,
+            'is_buyo': False,
             'class': 'MODEL NOT LOADED',
             'confidence': 0.0,
             'bbox': None,
@@ -197,39 +200,114 @@ def detect_target(frame):
         confidence = float(probs[pred_idx])
         pred_class = CLASS_NAMES[pred_idx]
         
-        # Check if confident detection
+        # Check if this is a Buyo leaf (confidence above minimum threshold)
+        is_buyo = confidence >= BUYO_CONFIDENCE_MIN
+        
+        # Check if confident enough for positive detection
         detected = confidence >= DETECTION_THRESHOLD
         
         # Annotate frame
         annotated = frame.copy()
         h, w = frame.shape[:2]
         
-        # Draw detection info
-        color = (0, 255, 0) if detected else (100, 100, 255)
-        status = "DETECTED" if detected else "SCANNING"
-        
-        cv2.putText(annotated, f"{status}: {pred_class}", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-        cv2.putText(annotated, f"Confidence: {confidence*100:.1f}%", (10, 60),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-        
-        # Draw probability bars
-        bar_y = 90
-        for i, cls in enumerate(CLASS_NAMES):
-            prob = probs[i]
-            bar_w = int(200 * prob)
-            cv2.rectangle(annotated, (10, bar_y + i*25), (10 + bar_w, bar_y + i*25 + 15),
-                         color if i == pred_idx else (200, 200, 200), -1)
-            cv2.putText(annotated, f"{cls}: {prob*100:.0f}%", (220, bar_y + i*25 + 12),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        # Only show detection info if it's likely a Buyo leaf
+        if is_buyo:
+            # Color coding based on confidence
+            if confidence >= DETECTION_THRESHOLD:
+                color = (0, 255, 0)  # Green - High confidence
+                status = "🍃 BUYO DETECTED"
+            elif confidence >= BUYO_CONFIDENCE_MIN:
+                color = (0, 165, 255)  # Orange - Medium confidence
+                status = "🍃 BUYO LEAF"
+            else:
+                color = (100, 100, 255)  # Red - Low confidence
+                status = "SCANNING"
+            
+            # Draw detection box
+            padding = 20
+            cv2.rectangle(annotated, (padding, padding), (w-padding, h-padding), color, 3)
+            
+            # Main class label (large, center)
+            class_text = f"{pred_class}"
+            conf_text = f"{confidence*100:.1f}%"
+            
+            # Get text size for background
+            (class_w, class_h), _ = cv2.getTextSize(class_text, cv2.FONT_HERSHEY_BOLD, 1.5, 3)
+            (conf_w, conf_h), _ = cv2.getTextSize(conf_text, cv2.FONT_HERSHEY_BOLD, 1.2, 3)
+            
+            # Center position
+            center_x = w // 2
+            center_y = h // 2
+            
+            # Draw background for class
+            cv2.rectangle(annotated, 
+                         (center_x - class_w//2 - 10, center_y - 60),
+                         (center_x + class_w//2 + 10, center_y - 10),
+                         (0, 0, 0), -1)
+            cv2.rectangle(annotated, 
+                         (center_x - class_w//2 - 10, center_y - 60),
+                         (center_x + class_w//2 + 10, center_y - 10),
+                         color, 3)
+            
+            # Draw class text
+            cv2.putText(annotated, class_text, 
+                       (center_x - class_w//2, center_y - 25),
+                       cv2.FONT_HERSHEY_BOLD, 1.5, color, 3)
+            
+            # Draw background for confidence
+            cv2.rectangle(annotated,
+                         (center_x - conf_w//2 - 10, center_y + 10),
+                         (center_x + conf_w//2 + 10, center_y + 50),
+                         (0, 0, 0), -1)
+            
+            # Draw confidence text
+            cv2.putText(annotated, conf_text,
+                       (center_x - conf_w//2, center_y + 40),
+                       cv2.FONT_HERSHEY_BOLD, 1.2, (255, 255, 255), 3)
+            
+            # Status at top
+            cv2.putText(annotated, status, (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            
+            # Draw probability bars (compact, top-right corner)
+            bar_x = w - 220
+            bar_y = 50
+            bar_height = 15
+            
+            for i, cls in enumerate(CLASS_NAMES):
+                prob = probs[i]
+                bar_w = int(150 * prob)
+                
+                # Background bar
+                cv2.rectangle(annotated, (bar_x, bar_y + i*20), 
+                            (bar_x + 150, bar_y + i*20 + bar_height),
+                            (50, 50, 50), -1)
+                
+                # Probability bar
+                bar_color = color if i == pred_idx else (100, 100, 100)
+                cv2.rectangle(annotated, (bar_x, bar_y + i*20), 
+                            (bar_x + bar_w, bar_y + i*20 + bar_height),
+                            bar_color, -1)
+                
+                # Class label
+                cv2.putText(annotated, f"{cls}: {prob*100:.0f}%", 
+                           (bar_x + 155, bar_y + i*20 + 12),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+        else:
+            # Not a Buyo leaf or very low confidence
+            cv2.putText(annotated, "🔍 SCANNING...", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (150, 150, 150), 2)
+            cv2.putText(annotated, "No Buyo Leaf Detected", (10, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 2)
         
         return {
             'detected': detected,
-            'class': pred_class,
-            'class_idx': pred_idx,
+            'is_buyo': is_buyo,
+            'class': pred_class if is_buyo else 'NO BUYO',
+            'class_idx': pred_idx if is_buyo else -1,
             'confidence': confidence,
             'probabilities': probs.tolist(),
-            'bbox': None,  # Add bounding box if using object detection
+            'bbox': None,
             'annotated_frame': annotated
         }
         
@@ -237,6 +315,7 @@ def detect_target(frame):
         print(f"Detection error: {e}")
         return {
             'detected': False,
+            'is_buyo': False,
             'class': 'ERROR',
             'confidence': 0.0,
             'bbox': None,
@@ -258,7 +337,7 @@ class LaptopClientGUI:
         self.pi_port = DEFAULT_PORT
         self.connected = False
         self.video_running = False
-        self.detection_enabled = tk.BooleanVar(value=False)
+        self.detection_enabled = True  # Always enabled - no toggle needed
         
         # Local camera support
         self.local_camera = None
@@ -328,20 +407,15 @@ class LaptopClientGUI:
                                     width=VIDEO_WIDTH, height=VIDEO_HEIGHT)
         self.video_label.pack(padx=5, pady=5)
         
-        # Detection toggle
+        # Detection status (always on - no toggle)
         detection_frame = tk.Frame(video_frame, bg='#1e1e1e')
         detection_frame.pack(pady=5)
         
-        self.detection_check = tk.Checkbutton(detection_frame, text="🎯 Enable Vision Detection",
-                                             variable=self.detection_enabled,
-                                             font=('Arial', 10, 'bold'),
-                                             bg='#1e1e1e', fg='#ffffff',
-                                             selectcolor='#2b2b2b',
-                                             activebackground='#1e1e1e',
-                                             activeforeground='#ffffff')
-        self.detection_check.pack()
+        tk.Label(detection_frame, text="🎯 Auto-Detection: ACTIVE",
+                font=('Arial', 10, 'bold'),
+                bg='#1e1e1e', fg='#4caf50').pack()
         
-        self.detection_status = tk.Label(detection_frame, text="Detection: Disabled",
+        self.detection_status = tk.Label(detection_frame, text="Scanning for Buyo leaves...",
                                         font=('Arial', 9), bg='#1e1e1e', fg='#888888')
         self.detection_status.pack()
         
@@ -532,11 +606,11 @@ class LaptopClientGUI:
             self.log("✓ Local camera stopped", 'SUCCESS')
     
     def local_camera_worker(self):
-        """Background worker for local camera feed"""
-        self.log("Local camera worker started...")
+        """Background worker for local camera feed with auto-detection"""
+        self.log("Local camera worker started with auto-detection...")
         fps_counter = []
         last_detection_time = 0
-        detection_cooldown = 1.0
+        detection_cooldown = 0.5  # Run detection every 0.5 seconds
         
         self.video_running = True
         
@@ -553,32 +627,37 @@ class LaptopClientGUI:
                 with self.frame_lock:
                     self.current_frame = frame.copy()
                 
-                # Run detection if enabled
+                # Always run detection
                 display_frame = frame
-                if self.detection_enabled.get():
-                    current_time = time.time()
-                    if current_time - last_detection_time >= detection_cooldown:
-                        result = detect_target(frame)
-                        display_frame = result['annotated_frame']
-                        
-                        # Update detection status
-                        status_text = f"Detection: {result['class']} ({result['confidence']*100:.1f}%)"
-                        status_color = '#00ff00' if result['detected'] else '#888888'
-                        self.root.after(0, lambda: self.detection_status.config(
-                            text=status_text, fg=status_color))
-                        
-                        # Store last detection result
+                current_time = time.time()
+                if current_time - last_detection_time >= detection_cooldown:
+                    result = detect_target(frame)
+                    display_frame = result['annotated_frame']
+                    
+                    # Update detection status based on Buyo detection
+                    if result['is_buyo']:
                         if result['detected']:
-                            self.last_detection = {
-                                'class': result['class'],
-                                'confidence': result['confidence']
-                            }
-                            self.log(f"🎯 Detected: {result['class']} ({result['confidence']*100:.1f}%)", 'SUCCESS')
-                        
-                        last_detection_time = current_time
-                else:
-                    self.root.after(0, lambda: self.detection_status.config(
-                        text="Detection: Disabled", fg='#888888'))
+                            status_text = f"✓ Detected: {result['class']} ({result['confidence']*100:.1f}%)"
+                            status_color = '#4caf50'
+                            self.log(f"🍃 Buyo leaf detected: {result['class']} ({result['confidence']*100:.1f}%)", 'SUCCESS')
+                        else:
+                            status_text = f"Buyo Leaf: {result['class']} ({result['confidence']*100:.1f}%)"
+                            status_color = '#ffaa00'
+                    else:
+                        status_text = "Scanning for Buyo leaves..."
+                        status_color = '#888888'
+                    
+                    self.root.after(0, lambda t=status_text, c=status_color: 
+                                  self.detection_status.config(text=t, fg=c))
+                    
+                    # Store last detection result
+                    if result['is_buyo']:
+                        self.last_detection = {
+                            'class': result['class'],
+                            'confidence': result['confidence']
+                        }
+                    
+                    last_detection_time = current_time
                 
                 # Resize for display
                 display_frame = cv2.resize(display_frame, (VIDEO_WIDTH, VIDEO_HEIGHT))
@@ -681,14 +760,14 @@ class LaptopClientGUI:
         self.root.after(1000, self.check_and_start_local_camera)
     
     def video_stream_worker(self):
-        """Background thread for video streaming with optional detection"""
+        """Background thread for video streaming with auto-detection"""
         ip = self.pi_ip.get()
         stream_url = f"http://{ip}:{self.pi_port}/video_feed"
         
-        self.log("Starting video stream...")
+        self.log("Starting video stream with auto-detection...")
         fps_counter = []
         last_detection_time = 0
-        detection_cooldown = 1.0  # Run detection every 1 second
+        detection_cooldown = 0.5  # Run detection every 0.5 seconds
         
         try:
             stream = requests.get(stream_url, stream=True, timeout=5)
@@ -719,34 +798,40 @@ class LaptopClientGUI:
                         with self.frame_lock:
                             self.current_frame = frame.copy()
                         
-                        # Run detection if enabled
+                        # Always run detection
                         display_frame = frame
-                        if self.detection_enabled.get():
-                            current_time = time.time()
-                            if current_time - last_detection_time >= detection_cooldown:
-                                result = detect_target(frame)
-                                display_frame = result['annotated_frame']
-                                
-                                # Update detection status
-                                status_text = f"Detection: {result['class']} ({result['confidence']*100:.1f}%)"
-                                status_color = '#00ff00' if result['detected'] else '#888888'
-                                self.root.after(0, lambda: self.detection_status.config(
-                                    text=status_text, fg=status_color))
-                                
-                                # Store last detection result
+                        current_time = time.time()
+                        if current_time - last_detection_time >= detection_cooldown:
+                            result = detect_target(frame)
+                            display_frame = result['annotated_frame']
+                            
+                            # Update detection status based on Buyo detection
+                            if result['is_buyo']:
                                 if result['detected']:
-                                    self.last_detection = {
-                                        'class': result['class'],
-                                        'confidence': result['confidence']
-                                    }
-                                    self.log(f"🎯 Detected: {result['class']} ({result['confidence']*100:.1f}%)", 'SUCCESS')
-                                    # Auto-trigger arm if configured
-                                    # self.send_command('drop', {'arm': 1, 'class': result['class']})
-                                
-                                last_detection_time = current_time
-                        else:
-                            self.root.after(0, lambda: self.detection_status.config(
-                                text="Detection: Disabled", fg='#888888'))
+                                    status_text = f"✓ Detected: {result['class']} ({result['confidence']*100:.1f}%)"
+                                    status_color = '#4caf50'
+                                    self.log(f"🍃 Buyo leaf detected: {result['class']} ({result['confidence']*100:.1f}%)", 'SUCCESS')
+                                else:
+                                    status_text = f"Buyo Leaf: {result['class']} ({result['confidence']*100:.1f}%)"
+                                    status_color = '#ffaa00'
+                            else:
+                                status_text = "Scanning for Buyo leaves..."
+                                status_color = '#888888'
+                            
+                            self.root.after(0, lambda t=status_text, c=status_color: 
+                                          self.detection_status.config(text=t, fg=c))
+                            
+                            # Store last detection result
+                            if result['is_buyo']:
+                                self.last_detection = {
+                                    'class': result['class'],
+                                    'confidence': result['confidence']
+                                }
+                                # Optional: Auto-trigger arm if configured
+                                # if result['detected']:
+                                #     self.send_command('drop', {'arm': 1, 'class': result['class']})
+                            
+                            last_detection_time = current_time
                         
                         # Resize for display
                         display_frame = cv2.resize(display_frame, (VIDEO_WIDTH, VIDEO_HEIGHT))
