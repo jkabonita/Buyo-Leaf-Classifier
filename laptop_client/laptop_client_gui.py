@@ -50,8 +50,8 @@ else:
 
 CLASS_NAMES = ['CLASS A', 'CLASS B', 'CLASS C', 'CLASS D', 'CLASS E']
 IMG_SIZE = 224
-DETECTION_THRESHOLD = 0.60  # Minimum confidence to consider as Buyo leaf
-BUYO_CONFIDENCE_MIN = 0.45  # Minimum confidence to show any class
+DETECTION_THRESHOLD = 0.50  # Lower threshold for high-confidence display
+BUYO_CONFIDENCE_MIN = 0.25  # Lower minimum to catch more Buyo leaves
 AUTO_DETECTION = True  # Always run detection automatically
 
 # ============================================================================
@@ -1030,10 +1030,10 @@ class LaptopClientGUI:
         threading.Thread(target=save, daemon=True).start()
     
     def show_classification_result(self, filepath, result):
-        """Show classification result in a dialog"""
+        """Show classification result in a dialog with enhanced feedback"""
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Classification Result - {os.path.basename(filepath)}")
-        dialog.geometry("700x600")
+        dialog.geometry("700x650")
         dialog.configure(bg='#2b2b2b')
         
         # Title
@@ -1073,17 +1073,55 @@ class LaptopClientGUI:
         
         pred_class = result['class']
         confidence = result['confidence']
+        is_buyo = result.get('is_buyo', confidence >= BUYO_CONFIDENCE_MIN)
+        
+        # Determine display based on confidence and buyo status
+        if not is_buyo:
+            display_class = "NO BUYO"
+            display_color = '#ff4444'
+            status_msg = "⚠️ Low confidence - May not be a Buyo leaf"
+        elif confidence >= DETECTION_THRESHOLD:
+            display_class = pred_class
+            display_color = '#4caf50'
+            status_msg = f"✅ High Confidence - Buyo leaf detected: {pred_class}"
+        elif confidence >= BUYO_CONFIDENCE_MIN:
+            display_class = pred_class
+            display_color = '#ffaa00'
+            status_msg = f"⚠️ Medium Confidence - Likely: {pred_class}"
+        else:
+            display_class = "NO BUYO"
+            display_color = '#888888'
+            status_msg = "❓ Very Low Confidence - Classification uncertain"
+        
+        # Status message
+        status_label = tk.Label(result_frame, text=status_msg,
+                               font=('Arial', 10), bg='#1e1e1e', fg='#ffffff',
+                               wraplength=600)
+        status_label.pack(pady=5)
         
         # Predicted class
-        color = '#4caf50' if confidence > 0.6 else '#ffaa00' if confidence > 0.4 else '#ff4444'
-        class_label = tk.Label(result_frame, text=f"Predicted Class: {pred_class}",
-                              font=('Arial', 14, 'bold'), bg='#1e1e1e', fg=color)
+        class_label = tk.Label(result_frame, text=f"Predicted Class: {display_class}",
+                              font=('Arial', 14, 'bold'), bg='#1e1e1e', fg=display_color)
         class_label.pack(pady=5)
         
         # Confidence
         conf_label = tk.Label(result_frame, text=f"Confidence: {confidence*100:.2f}%",
                              font=('Arial', 12), bg='#1e1e1e', fg='#ffffff')
         conf_label.pack(pady=5)
+        
+        # Confidence interpretation
+        if confidence >= 0.70:
+            interp = "Very High - Strong detection"
+        elif confidence >= 0.50:
+            interp = "High - Good detection"
+        elif confidence >= 0.30:
+            interp = "Medium - Uncertain"
+        else:
+            interp = "Low - Weak detection"
+        
+        interp_label = tk.Label(result_frame, text=f"Interpretation: {interp}",
+                               font=('Arial', 9), bg='#1e1e1e', fg='#888888')
+        interp_label.pack(pady=2)
         
         # Probability bars
         if 'probabilities' in result:
@@ -1106,7 +1144,7 @@ class LaptopClientGUI:
                 canvas.pack(side=tk.LEFT, padx=5)
                 
                 bar_width = int(280 * prob)
-                bar_color = color if i == result.get('class_idx', -1) else '#555555'
+                bar_color = display_color if i == result.get('class_idx', -1) else '#555555'
                 canvas.create_rectangle(2, 2, bar_width + 2, 18, fill=bar_color, outline='')
                 
                 tk.Label(bar_frame, text=f"{prob*100:.1f}%",
