@@ -854,6 +854,7 @@ class LaptopClientGUI:
         def classify_batch():
             try:
                 results = []
+                start_time = time.time()  # Track processing time
                 
                 for idx, filepath in enumerate(filepaths):
                     self.log(f"[{idx+1}/{len(filepaths)}] Processing: {os.path.basename(filepath)}")
@@ -865,12 +866,14 @@ class LaptopClientGUI:
                         continue
                     
                     # Run detection
+                    img_start = time.time()
                     result = detect_target(img)
+                    img_time = time.time() - img_start
                     
                     pred_class = result['class']
                     confidence = result['confidence']
                     
-                    self.log(f"  → {pred_class} ({confidence*100:.1f}%)")
+                    self.log(f"  → {pred_class} ({confidence*100:.1f}%) [{img_time*1000:.1f}ms]")
                     
                     # Store result
                     results.append({
@@ -879,13 +882,16 @@ class LaptopClientGUI:
                         'class': pred_class,
                         'confidence': confidence,
                         'probabilities': result.get('probabilities', []),
-                        'image': img
+                        'image': img,
+                        'processing_time': img_time
                     })
                 
-                self.log(f"✓ Batch classification complete: {len(results)}/{len(filepaths)} images", 'SUCCESS')
+                total_time = time.time() - start_time
+                self.log(f"✓ Batch classification complete: {len(results)}/{len(filepaths)} images in {total_time:.2f}s", 'SUCCESS')
+                self.log(f"  Throughput: {len(results)/total_time:.1f} images/sec", 'INFO')
                 
-                # Show batch results dialog
-                self.root.after(0, lambda: self.show_batch_classification_results(results))
+                # Show batch results dialog with timing info
+                self.root.after(0, lambda: self.show_batch_classification_results(results, total_time))
                 
             except Exception as e:
                 self.log(f"✗ Batch classification error: {str(e)}", 'ERROR')
@@ -1046,36 +1052,144 @@ class LaptopClientGUI:
                  font=('Arial', 10), bg='#4caf50', fg='white',
                  padx=20, pady=10).pack(side=tk.LEFT, padx=5)
     
-    def show_batch_classification_results(self, results):
-        """Show batch classification results in a dialog"""
+    def show_batch_classification_results(self, results, processing_time=0, metrics=None):
+        """Show batch classification results in a dialog with enhanced metrics and time complexity"""
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Batch Classification Results - {len(results)} Images")
-        dialog.geometry("900x700")
+        dialog.geometry("1024x768")
         dialog.configure(bg='#2b2b2b')
         
         # Title
         title_label = tk.Label(dialog, text=f"📦 Batch Classification Complete - {len(results)} Images",
-                              font=('Arial', 14, 'bold'), bg='#2b2b2b', fg='#ffffff')
+                              font=('Arial', 16, 'bold'), bg='#2b2b2b', fg='#ffffff')
         title_label.pack(pady=10)
         
-        # Stats summary
-        stats_frame = tk.Frame(dialog, bg='#1e1e1e', relief=tk.RIDGE, bd=2)
-        stats_frame.pack(fill=tk.X, padx=10, pady=5)
+        # ===== ENHANCED METRICS PANEL =====
+        metrics_container = tk.Frame(dialog, bg='#2b2b2b')
+        metrics_container.pack(fill=tk.X, padx=10, pady=5)
         
-        # Count by class
+        # Left metrics - Performance
+        left_metrics = tk.LabelFrame(metrics_container, text="⚡ Performance Metrics",
+                                     font=('Arial', 10, 'bold'), bg='#1e1e1e', fg='#4caf50')
+        left_metrics.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        # Calculate metrics
+        total_images = len(results)
+        avg_conf = sum(r['confidence'] for r in results) / total_images if results else 0
+        high_conf = sum(1 for r in results if r['confidence'] > 0.7)
+        medium_conf = sum(1 for r in results if 0.4 <= r['confidence'] <= 0.7)
+        low_conf = sum(1 for r in results if r['confidence'] < 0.4)
+        
+        # Time complexity metrics
+        if processing_time > 0:
+            images_per_sec = total_images / processing_time
+            ms_per_image = (processing_time * 1000) / total_images
+            
+            # Big O notation display
+            tk.Label(left_metrics, 
+                    text=f"Time Complexity: O(n) - Linear",
+                    font=('Consolas', 9, 'bold'), bg='#1e1e1e', fg='#4caf50').pack(anchor='w', padx=10, pady=2)
+            
+            tk.Label(left_metrics,
+                    text=f"Total Time: {processing_time:.2f}s | Throughput: {images_per_sec:.1f} img/s",
+                    font=('Arial', 9), bg='#1e1e1e', fg='#ffffff').pack(anchor='w', padx=10, pady=2)
+            
+            tk.Label(left_metrics,
+                    text=f"Avg Time/Image: {ms_per_image:.1f}ms",
+                    font=('Arial', 9), bg='#1e1e1e', fg='#ffffff').pack(anchor='w', padx=10, pady=2)
+        else:
+            tk.Label(left_metrics,
+                    text="Processing time not recorded",
+                    font=('Arial', 9), bg='#1e1e1e', fg='#888888').pack(anchor='w', padx=10, pady=2)
+        
+        # Device information
+        device_info = f"Device: {'GPU (CUDA)' if torch.cuda.is_available() else 'CPU'}"
+        if torch.cuda.is_available():
+            device_info += f" - {torch.cuda.get_device_name(0)}"
+        tk.Label(left_metrics,
+                text=device_info,
+                font=('Arial', 9), bg='#1e1e1e', fg='#ffaa00').pack(anchor='w', padx=10, pady=2)
+        
+        # Right metrics - Classification Distribution
+        right_metrics = tk.LabelFrame(metrics_container, text="📊 Classification Distribution",
+                                      font=('Arial', 10, 'bold'), bg='#1e1e1e', fg='#4caf50')
+        right_metrics.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # Count by class with visual bars
         class_counts = {}
         for item in results:
             class_name = item['class']
             class_counts[class_name] = class_counts.get(class_name, 0) + 1
         
-        stats_text = "Distribution: " + " | ".join([f"{cls}: {cnt}" for cls, cnt in sorted(class_counts.items())])
-        tk.Label(stats_frame, text=stats_text, font=('Arial', 10), 
-                bg='#1e1e1e', fg='#4caf50').pack(pady=5)
+        # Display class distribution with progress bars
+        for cls in sorted(class_counts.keys()):
+            count = class_counts[cls]
+            percentage = (count / total_images) * 100
+            
+            class_frame = tk.Frame(right_metrics, bg='#1e1e1e')
+            class_frame.pack(fill=tk.X, padx=10, pady=2)
+            
+            tk.Label(class_frame, text=f"{cls}:",
+                    font=('Arial', 9, 'bold'), bg='#1e1e1e', fg='#ffffff',
+                    width=10, anchor='w').pack(side=tk.LEFT)
+            
+            # Visual bar
+            bar_width = int((percentage / 100) * 150)
+            bar_canvas = tk.Canvas(class_frame, width=150, height=15, bg='#2b2b2b', highlightthickness=0)
+            bar_canvas.pack(side=tk.LEFT, padx=5)
+            bar_canvas.create_rectangle(0, 0, bar_width, 15, fill='#4caf50', outline='')
+            
+            tk.Label(class_frame, text=f"{count} ({percentage:.1f}%)",
+                    font=('Arial', 9), bg='#1e1e1e', fg='#ffffff').pack(side=tk.LEFT)
+        
+        # ===== CONFIDENCE BREAKDOWN =====
+        confidence_frame = tk.LabelFrame(dialog, text="🎯 Confidence Analysis",
+                                        font=('Arial', 10, 'bold'), bg='#1e1e1e', fg='#4caf50')
+        confidence_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        conf_grid = tk.Frame(confidence_frame, bg='#1e1e1e')
+        conf_grid.pack(padx=10, pady=5)
+        
+        # High confidence
+        high_frame = tk.Frame(conf_grid, bg='#1e1e1e')
+        high_frame.pack(side=tk.LEFT, padx=15)
+        tk.Label(high_frame, text="🟢 High (>70%)",
+                font=('Arial', 9, 'bold'), bg='#1e1e1e', fg='#4caf50').pack()
+        tk.Label(high_frame, text=f"{high_conf} images",
+                font=('Arial', 11, 'bold'), bg='#1e1e1e', fg='#ffffff').pack()
+        tk.Label(high_frame, text=f"{(high_conf/total_images*100):.1f}%",
+                font=('Arial', 8), bg='#1e1e1e', fg='#888888').pack()
+        
+        # Medium confidence
+        med_frame = tk.Frame(conf_grid, bg='#1e1e1e')
+        med_frame.pack(side=tk.LEFT, padx=15)
+        tk.Label(med_frame, text="🟡 Medium (40-70%)",
+                font=('Arial', 9, 'bold'), bg='#1e1e1e', fg='#ffaa00').pack()
+        tk.Label(med_frame, text=f"{medium_conf} images",
+                font=('Arial', 11, 'bold'), bg='#1e1e1e', fg='#ffffff').pack()
+        tk.Label(med_frame, text=f"{(medium_conf/total_images*100):.1f}%",
+                font=('Arial', 8), bg='#1e1e1e', fg='#888888').pack()
+        
+        # Low confidence
+        low_frame = tk.Frame(conf_grid, bg='#1e1e1e')
+        low_frame.pack(side=tk.LEFT, padx=15)
+        tk.Label(low_frame, text="🔴 Low (<40%)",
+                font=('Arial', 9, 'bold'), bg='#1e1e1e', fg='#ff4444').pack()
+        tk.Label(low_frame, text=f"{low_conf} images",
+                font=('Arial', 11, 'bold'), bg='#1e1e1e', fg='#ffffff').pack()
+        tk.Label(low_frame, text=f"{(low_conf/total_images*100):.1f}%",
+                font=('Arial', 8), bg='#1e1e1e', fg='#888888').pack()
         
         # Average confidence
-        avg_conf = sum(r['confidence'] for r in results) / len(results) if results else 0
-        tk.Label(stats_frame, text=f"Average Confidence: {avg_conf*100:.1f}%",
-                font=('Arial', 10), bg='#1e1e1e', fg='#ffffff').pack(pady=5)
+        avg_frame = tk.Frame(conf_grid, bg='#1e1e1e')
+        avg_frame.pack(side=tk.LEFT, padx=15)
+        tk.Label(avg_frame, text="📈 Average",
+                font=('Arial', 9, 'bold'), bg='#1e1e1e', fg='#ffffff').pack()
+        tk.Label(avg_frame, text=f"{avg_conf*100:.1f}%",
+                font=('Arial', 11, 'bold'), bg='#1e1e1e', 
+                fg='#4caf50' if avg_conf > 0.7 else '#ffaa00' if avg_conf > 0.4 else '#ff4444').pack()
+        tk.Label(avg_frame, text="confidence",
+                font=('Arial', 8), bg='#1e1e1e', fg='#888888').pack()
         
         # Scrollable frame for results
         canvas = tk.Canvas(dialog, bg='#2b2b2b', highlightthickness=0)
