@@ -50,9 +50,16 @@ else:
 
 CLASS_NAMES = ['CLASS A', 'CLASS B', 'CLASS C', 'CLASS D', 'CLASS E']
 IMG_SIZE = 224
-DETECTION_THRESHOLD = 0.50  # Lower threshold for high-confidence display
-BUYO_CONFIDENCE_MIN = 0.25  # Lower minimum to catch more Buyo leaves
+DETECTION_THRESHOLD = 0.70  # Higher threshold to reduce false positives
+BUYO_CONFIDENCE_MIN = 0.50  # Stricter minimum for Buyo leaves
 AUTO_DETECTION = True  # Always run detection automatically
+
+# Additional filters for Buyo leaf detection
+USE_COLOR_FILTER = True  # Enable green color filtering
+GREEN_HUE_MIN = 35  # Minimum hue for green (HSV)
+GREEN_HUE_MAX = 85  # Maximum hue for green (HSV)
+GREEN_SATURATION_MIN = 40  # Minimum saturation
+MIN_GREEN_RATIO = 0.15  # Minimum ratio of green pixels
 
 # ============================================================================
 # ML MODEL LOADING
@@ -160,6 +167,38 @@ def load_model():
         traceback.print_exc()
         return False
 
+def check_if_green_leaf(frame):
+    """
+    Check if frame contains green leaf-like colors
+    Returns True if significant green content detected
+    """
+    if not USE_COLOR_FILTER:
+        return True
+    
+    try:
+        # Convert to HSV for better color detection
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        
+        # Define green color range in HSV
+        lower_green = np.array([GREEN_HUE_MIN, GREEN_SATURATION_MIN, 40])
+        upper_green = np.array([GREEN_HUE_MAX, 255, 255])
+        
+        # Create mask for green colors
+        green_mask = cv2.inRange(hsv, lower_green, upper_green)
+        
+        # Calculate ratio of green pixels
+        green_pixels = np.sum(green_mask > 0)
+        total_pixels = frame.shape[0] * frame.shape[1]
+        green_ratio = green_pixels / total_pixels
+        
+        # Return True if enough green content
+        return green_ratio >= MIN_GREEN_RATIO
+        
+    except Exception as e:
+        print(f"Color filter error: {e}")
+        return True  # Default to allowing detection if filter fails
+
+
 def detect_target(frame):
     """
     Vision detection - detect Buyo leaves in frame
@@ -191,6 +230,29 @@ def detect_target(frame):
         }
     
     try:
+        # First check if frame contains green leaf-like colors
+        has_green = check_if_green_leaf(frame)
+        
+        if not has_green:
+            # No green content - likely not a Buyo leaf
+            annotated = frame.copy()
+            h, w = frame.shape[:2]
+            cv2.putText(annotated, "🔍 SCANNING...", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (150, 150, 150), 2)
+            cv2.putText(annotated, "No green leaf detected", (10, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 2)
+            
+            return {
+                'detected': False,
+                'is_buyo': False,
+                'class': 'NO GREEN',
+                'class_idx': -1,
+                'confidence': 0.0,
+                'probabilities': [0.0] * len(CLASS_NAMES),
+                'bbox': None,
+                'annotated_frame': annotated
+            }
+        
         # Convert to RGB
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(frame_rgb)
@@ -326,6 +388,78 @@ def detect_target(frame):
             'bbox': None,
             'annotated_frame': frame
         }
+
+# ============================================================================
+# PROGRESS DIALOG
+# ============================================================================
+class ProgressDialog:
+    """Progress dialog for batch operations"""
+    def __init__(self, parent, title, total_items):
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(title)
+        self.dialog.geometry("500x200")
+        self.dialog.configure(bg='#2b2b2b')
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Center window
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (200 // 2)
+        self.dialog.geometry(f"500x200+{x}+{y}")
+        
+        self.total_items = total_items
+        self.current_item = 0
+        
+        # Title
+        tk.Label(self.dialog, text=title, font=('Arial', 14, 'bold'),
+                bg='#2b2b2b', fg='#ffffff').pack(pady=10)
+        
+        # Status text
+        self.status_label = tk.Label(self.dialog, text="Initializing...",
+                                     font=('Arial', 10), bg='#2b2b2b', fg='#ffffff')
+        self.status_label.pack(pady=5)
+        
+        # Progress bar
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(self.dialog, variable=self.progress_var,
+                                           maximum=100, length=400, mode='determinate')
+        self.progress_bar.pack(pady=10)
+        
+        # Progress text
+        self.progress_label = tk.Label(self.dialog, text="0 / 0 (0%)",
+                                       font=('Arial', 9), bg='#2b2b2b', fg='#888888')
+        self.progress_label.pack(pady=5)
+        
+        # Time estimate
+        self.time_label = tk.Label(self.dialog, text="Estimated time: Calculating...",
+                                   font=('Arial', 9), bg='#2b2b2b', fg='#888888')
+        self.time_label.pack(pady=5)
+        
+        self.start_time = time.time()
+    
+    def update(self, current, status_text="Processing..."):
+        """Update progress"""
+        self.current_item = current
+        progress_pct = (current / self.total_items * 100) if self.total_items > 0 else 0
+        
+        self.progress_var.set(progress_pct)
+        self.status_label.config(text=status_text)
+        self.progress_label.config(text=f"{current} / {self.total_items} ({progress_pct:.1f}%)")
+        
+        # Calculate time estimate
+        if current > 0:
+            elapsed = time.time() - self.start_time
+            avg_time = elapsed / current
+            remaining = (self.total_items - current) * avg_time
+            self.time_label.config(text=f"Estimated time remaining: {remaining:.1f}s")
+        
+        self.dialog.update()
+    
+    def close(self):
+        """Close the dialog"""
+        self.dialog.destroy()
+
 
 # ============================================================================
 # GUI APPLICATION
@@ -494,7 +628,7 @@ class LaptopClientGUI:
         status_bar = tk.Frame(self.root, bg='#1e1e1e', relief=tk.SUNKEN, bd=1)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         
-        self.model_status_label = tk.Label(status_bar, text="Model: Loading...",
+        self.model_status_label = tk.Label(status_bar, text="Model: ⏳ Loading...",
                                           font=('Arial', 9, 'bold'), bg='#1e1e1e', fg='#ffaa00')
         self.model_status_label.pack(side=tk.LEFT, padx=10, pady=2)
         
@@ -941,13 +1075,18 @@ class LaptopClientGUI:
         
         self.log(f"📦 Classifying {len(filepaths)} images...")
         
+        # Create progress dialog
+        progress = ProgressDialog(self.root, "Batch Classification", len(filepaths))
+        
         def classify_batch():
             try:
                 results = []
                 start_time = time.time()  # Track processing time
                 
                 for idx, filepath in enumerate(filepaths):
-                    self.log(f"[{idx+1}/{len(filepaths)}] Processing: {os.path.basename(filepath)}")
+                    filename = os.path.basename(filepath)
+                    progress.update(idx, f"Processing: {filename}")
+                    self.log(f"[{idx+1}/{len(filepaths)}] Processing: {filename}")
                     
                     # Load image
                     img = cv2.imread(filepath)
@@ -968,13 +1107,19 @@ class LaptopClientGUI:
                     # Store result
                     results.append({
                         'filepath': filepath,
-                        'filename': os.path.basename(filepath),
+                        'filename': filename,
                         'class': pred_class,
                         'confidence': confidence,
                         'probabilities': result.get('probabilities', []),
                         'image': img,
-                        'processing_time': img_time
+                        'processing_time': img_time,
+                        'is_buyo': result.get('is_buyo', False)
                     })
+                
+                # Final update
+                progress.update(len(filepaths), "Complete!")
+                time.sleep(0.5)  # Show completion briefly
+                progress.close()
                 
                 total_time = time.time() - start_time
                 self.log(f"✓ Batch classification complete: {len(results)}/{len(filepaths)} images in {total_time:.2f}s", 'SUCCESS')
@@ -984,6 +1129,7 @@ class LaptopClientGUI:
                 self.root.after(0, lambda: self.show_batch_classification_results(results, total_time))
                 
             except Exception as e:
+                progress.close()
                 self.log(f"✗ Batch classification error: {str(e)}", 'ERROR')
                 import traceback
                 traceback.print_exc()
@@ -1813,10 +1959,10 @@ if __name__ == '__main__':
             print("\n✅ ML MODEL READY - AUTO-DETECTION ACTIVE")
             if 'app' in globals():
                 app.root.after(0, lambda: app.model_status_label.config(
-                    text="Model: ✅ LOADED", fg='#4caf50'))
+                    text="Model: ✅ READY", fg='#4caf50'))
                 app.root.after(0, lambda: app.status_text.config(
-                    text="Model loaded - Auto-detection active"))
-                app.root.after(0, lambda: app.log("✅ Model loaded - Auto-detection ready", 'SUCCESS'))
+                    text="Model ready - Auto-detection active"))
+                app.root.after(0, lambda: app.log("✅ Model loaded successfully", 'SUCCESS'))
         else:
             print("\n❌ ML MODEL FAILED - DETECTION UNAVAILABLE")
             if 'app' in globals():
