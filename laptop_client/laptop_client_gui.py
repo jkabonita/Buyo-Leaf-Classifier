@@ -50,12 +50,12 @@ else:
 
 CLASS_NAMES = ['CLASS A', 'CLASS B', 'CLASS C', 'CLASS D', 'CLASS E']
 IMG_SIZE = 224
-DETECTION_THRESHOLD = 0.70  # Higher threshold to reduce false positives
-BUYO_CONFIDENCE_MIN = 0.50  # Stricter minimum for Buyo leaves
+DETECTION_THRESHOLD = 0.40  # Lowered to catch more detections
+BUYO_CONFIDENCE_MIN = 0.20  # Very low threshold to see all predictions
 AUTO_DETECTION = True  # Always run detection automatically
 
 # Additional filters for Buyo leaf detection
-USE_COLOR_FILTER = True  # Enable green color filtering
+USE_COLOR_FILTER = False  # DISABLED - model needs retraining, filter hiding valid detections
 GREEN_HUE_MIN = 35  # Minimum hue for green (HSV)
 GREEN_HUE_MAX = 85  # Maximum hue for green (HSV)
 GREEN_SATURATION_MIN = 40  # Minimum saturation
@@ -1949,34 +1949,32 @@ if __name__ == '__main__':
     print("  INITIALIZATION")
     print("="*70)
     
-    # Load model in background
+    print("\n🚀 Starting GUI...")
+    # Start GUI
+    root = tk.Tk()
+    app = LaptopClientGUI(root)
+    
+    # Load model in background AFTER app is created
     def load_model_async():
-        global app
         print("\n" + "="*70)
         print("  LOADING ML MODEL")
         print("="*70)
         
         if load_model():
             print("\n✅ ML MODEL READY - AUTO-DETECTION ACTIVE")
-            if 'app' in globals():
-                app.root.after(0, lambda: app.model_status_label.config(
-                    text="Model: ✅ READY", fg='#4caf50'))
-                app.root.after(0, lambda: app.status_text.config(
-                    text="Model ready - Auto-detection active"))
-                app.root.after(0, lambda: app.log("✅ Model loaded successfully", 'SUCCESS'))
+            app.root.after(0, lambda: app.model_status_label.config(
+                text="Model: ✅ READY", fg='#4caf50'))
+            app.root.after(0, lambda: app.status_text.config(
+                text="Model ready - Auto-detection active"))
+            app.root.after(0, lambda: app.log("Model loaded successfully - Auto-detection active", 'SUCCESS'))
         else:
             print("\n❌ ML MODEL FAILED - DETECTION UNAVAILABLE")
-            if 'app' in globals():
-                app.root.after(0, lambda: app.model_status_label.config(
-                    text="Model: ❌ FAILED", fg='#ff4444'))
-                app.root.after(0, lambda: app.status_text.config(
-                    text="Model failed to load - check console for errors"))
-                app.root.after(0, lambda: app.log("❌ Model loading failed - check console", 'ERROR'))
+            app.root.after(0, lambda: app.model_status_label.config(
+                text="Model: ❌ FAILED", fg='#ff4444'))
+            app.root.after(0, lambda: app.status_text.config(
+                text="Model failed to load - check console for errors"))
+            app.root.after(0, lambda: app.log("Model loading failed - check console", 'ERROR'))
     
     threading.Thread(target=load_model_async, daemon=True).start()
     
-    print("\n🚀 Starting GUI...")
-    # Start GUI
-    root = tk.Tk()
-    app = LaptopClientGUI(root)
     root.mainloop()
