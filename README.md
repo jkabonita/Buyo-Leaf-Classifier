@@ -1,12 +1,35 @@
-﻿# 🍃 Buyo Leaf Classifier
+﻿<div align="center">
 
-> AI-powered automated grading system for Buyo (Betel) leaves using deep learning and remote GPU processing
+# 🍃 Buyo Leaf Classifier
+
+### AI-Powered Automated Grading System for Buyo (Betel) Leaves
+
+*Deep Learning • Remote GPU Processing • Real-time Classification*
+
+<br>
 
 [![Python](https://img.shields.io/badge/Python-3.7+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Production-success?style=for-the-badge)]()
+
+<br>
+
+**[Features](#-features) • [Quick Start](#-quick-start) • [Architecture](#-system-architecture) • [Documentation](#-documentation)**
+
+<br>
+
+<img src="https://via.placeholder.com/800x400/1a1a1a/00ff88?text=Buyo+Leaf+Classification+System" alt="Buyo Leaf Classification System Banner" width="100%"/>
+
+</div>
+
+---
+
+<br>
 
 ## 🛠️ Tech Stack
+
+<div align="center">
 
 ### Core Technologies
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
@@ -25,155 +48,307 @@
 ![TensorFlow Lite](https://img.shields.io/badge/TFLite-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)
 ![Matplotlib](https://img.shields.io/badge/Matplotlib-11557c?style=for-the-badge&logo=python&logoColor=white)
-![Seaborn](https://img.shields.io/badge/Seaborn-3776AB?style=for-the-badge&logo=python&logoColor=white)
 
 ### Hardware & Deployment
 ![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-A22846?style=for-the-badge&logo=raspberry-pi&logoColor=white)
 ![NVIDIA](https://img.shields.io/badge/NVIDIA%20GPU-76B900?style=for-the-badge&logo=nvidia&logoColor=white)
 ![Git](https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white)
 
----
+</div>
+
+<br>
 
 ## 📋 Table of Contents
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [System Architecture](#-system-architecture)
-- [Quick Start](#-quick-start)
-- [Installation](#-installation)
-- [Usage](#-usage)
-- [Project Structure](#-project-structure)
-- [Model Training](#-model-training)
-- [Dataset Tools](#-dataset-tools)
-- [Deployment Options](#-deployment-options)
-- [Performance](#-performance)
-- [Troubleshooting](#-troubleshooting)
-- [Contributing](#-contributing)
-- [License](#-license)
+<details>
+<summary>Click to expand</summary>
 
----
+- [🎯 Overview](#-overview)
+- [✨ Features](#-features)
+- [🏗️ System Architecture](#-system-architecture)
+- [🚀 Quick Start](#-quick-start)
+- [💾 Installation](#-installation)
+- [🎮 Usage](#-usage)
+- [📂 Project Structure](#-project-structure)
+- [🎓 Model Training](#-model-training)
+- [🛠️ Dataset Tools](#-dataset-tools)
+- [🚀 Deployment Options](#-deployment-options)
+- [📊 Performance](#-performance)
+- [🔧 Troubleshooting](#-troubleshooting)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+
+</details>
+
+<br>
+
+<div align="center">
 
 ## 🎯 Overview
 
-The Buyo Leaf Classifier is an end-to-end machine learning system designed to automatically grade Buyo (Betel) leaves into 5 quality classes (A, B, C, D, E). It combines state-of-the-art deep learning models with a distributed computing architecture, enabling real-time classification on Raspberry Pi using remote GPU processing.
+</div>
 
-### Key Highlights
+The **Buyo Leaf Classifier** is an end-to-end machine learning system designed to automatically grade Buyo (Betel) leaves into 5 quality classes (A, B, C, D, E). It combines state-of-the-art deep learning models with a distributed computing architecture, enabling real-time classification on Raspberry Pi using remote GPU processing.
 
-- **5-Class Classification**: Grades leaves into CLASS A through CLASS E
-- **High Accuracy**: 68-78% validation accuracy with ensemble models
-- **Remote GPU Processing**: Raspberry Pi streams to laptop GPU for inference
-- **Multiple Deployment Modes**: GUI or command-line interfaces
-- **Flexible Architecture**: Supports EfficientNetV2-S, ConvNeXt-Tiny, ResNet50
-- **Production Ready**: Includes TFLite conversion for edge deployment
+<br>
 
----
+<table align="center">
+<tr>
+<td align="center" width="33%">
+
+### 🎯 5-Class System
+Grades leaves from<br>CLASS A to CLASS E
+
+</td>
+<td align="center" width="33%">
+
+### ⚡ High Accuracy
+**73-75%** validation<br>accuracy achieved
+
+</td>
+<td align="center" width="33%">
+
+### 🚀 Real-time
+<500ms latency for<br>classification
+
+</td>
+</tr>
+</table>
+
+<br>
+
+### 🌟 Key Highlights
+
+```diff
++ 5-Class Classification: Grades leaves into CLASS A through CLASS E
++ High Accuracy: 68-78% validation accuracy with ensemble models
++ Remote GPU Processing: Raspberry Pi streams to laptop GPU for inference
++ Multiple Deployment Modes: GUI or command-line interfaces
++ Flexible Architecture: Supports EfficientNetV2-S, ConvNeXt-Tiny, ResNet50
++ Production Ready: Includes TFLite conversion for edge deployment
+```
+
+<br>
+
+<div align="center">
 
 ## ✨ Features
 
-### Machine Learning
+</div>
 
-#### 🧠 Model Architectures
-- ✅ **EfficientNetV2-S** ![](https://img.shields.io/badge/-21M_params-4285F4?style=flat-square) - Google's efficient CNN
-- ✅ **ConvNeXt-Tiny** ![](https://img.shields.io/badge/-28M_params-0467DF?style=flat-square) - Modern ConvNet by Meta
-- ✅ **ResNet50** ![](https://img.shields.io/badge/-25M_params-00A4EF?style=flat-square) - Deep residual network by Microsoft
+### 🧠 Machine Learning
 
-#### 🎯 Training Features
-- ✅ **Ensemble Training**: Knowledge distillation from multiple teacher models
-- ✅ **Advanced Augmentation**: Mixup, CutMix, class-specific augmentation
-- ✅ **Focal Loss**: Handles hard-to-classify examples (CLASS B, C, D)
-- ✅ **Test-Time Augmentation (TTA)**: Improved inference accuracy
-- ✅ **Gradient Accumulation**: Effective batch size optimization for limited VRAM
-- ✅ **Mixed Precision Training**: FP16 for faster training with AMP
+<table>
+<tr>
+<td width="50%">
 
-### Remote Processing System
-- ✅ **Two-Device Architecture**: Raspberry Pi + Laptop GPU
+#### Model Architectures
+
+| Model | Parameters | Source |
+|-------|-----------|---------|
+| **EfficientNetV2-S** | 21M | ![Google](https://img.shields.io/badge/-Google-4285F4?style=flat-square&logo=google&logoColor=white) |
+| **ConvNeXt-Tiny** | 28M | ![Meta](https://img.shields.io/badge/-Meta-0467DF?style=flat-square&logo=meta&logoColor=white) |
+| **ResNet50** | 25M | ![Microsoft](https://img.shields.io/badge/-Microsoft-00A4EF?style=flat-square&logo=microsoft&logoColor=white) |
+
+</td>
+<td width="50%">
+
+#### Training Features
+
+- ✅ Ensemble Training with Knowledge Distillation
+- ✅ Advanced Augmentation (Mixup, CutMix)
+- ✅ Focal Loss for Hard Examples
+- ✅ Test-Time Augmentation (TTA)
+- ✅ Gradient Accumulation
+- ✅ Mixed Precision Training (FP16)
+
+</td>
+</tr>
+</table>
+
+### 🌐 Remote Processing System
+
+<table>
+<tr>
+<td width="50%">
+
+#### System Features
+
+- ✅ **Two-Device Architecture**: Pi + Laptop GPU
 - ✅ **Real-time Video Streaming**: MJPEG over HTTP
-- ✅ **Low Latency**: <500ms typical classification time
-- ✅ **GUI Interface**: User-friendly control panels on both devices
-- ✅ **Manual Override**: Robotic arm control via buttons
-- ✅ **Activity Logging**: Timestamped detection and command logs
+- ✅ **Low Latency**: <500ms classification time
+- ✅ **GUI Interface**: User-friendly control panels
 
-### Dataset Management
-- ✅ **Duplicate Detection**: Find cross-class duplicates
-- ✅ **Quality Analysis**: Blur, brightness, contrast metrics
-- ✅ **Data Augmentation**: Offline augmentation to balance classes
-- ✅ **Train/Val Splitting**: Automated 80/20 split with deterministic shuffling
+</td>
+<td width="50%">
 
-### Automation
-- ✅ **Robotic Arm Integration**: Servo control via PCA9685
-- ✅ **Automatic Triggering**: Action on high-confidence detections
-- ✅ **Command Cooldown**: Prevents rapid-fire commands
-- ✅ **Batch Processing**: Upload and classify multiple leaves
+#### Control Features
 
----
+- ✅ **Manual Override**: Robotic arm buttons
+- ✅ **Activity Logging**: Timestamped events
+- ✅ **Auto-Trigger**: High-confidence actions
+- ✅ **Command Cooldown**: Prevents rapid-fire
+
+</td>
+</tr>
+</table>
+
+### 🛠️ Dataset Management
+
+<div align="center">
+
+| Feature | Description |
+|---------|-------------|
+| 🔍 **Duplicate Detection** | Find cross-class duplicates using perceptual hashing |
+| 📊 **Quality Analysis** | Blur, brightness, contrast metrics |
+| 🎨 **Data Augmentation** | Offline augmentation to balance classes |
+| 📂 **Train/Val Splitting** | Automated 80/20 split with shuffling |
+
+</div>
+
+### 🤖 Automation
+
+```
+┌─────────────────────────────────────────────────────┐
+│  🎯 Robotic Arm Integration                         │
+│     • Servo control via PCA9685                     │
+│     • Automatic triggering on high confidence       │
+│     • Command cooldown system                       │
+│     • Batch processing capabilities                 │
+└─────────────────────────────────────────────────────┘
+```
+
+<br>
+
+<div align="center">
 
 ## 🏗️ System Architecture
 
+</div>
+
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        RASPBERRY PI SERVER                          │
-│                                                                     │
-│  ┌──────────────────┐         ┌──────────────────────────────┐   │
-│  │   Pi Camera      │  ────>  │   Flask Server (Port 5000)   │   │
-│  │  (Picamera2 or   │         │   - /video_feed (MJPEG)      │   │
-│  │   USB Webcam)    │         │   - /command (POST JSON)     │   │
-│  └──────────────────┘         │   - /status (GET)            │   │
-│                                └──────────────────────────────┘   │
-│                                          │                          │
-│                                          ↓                          │
-│                                ┌──────────────────┐                │
-│                                │  Robotic Arm     │                │
-│                                │  ServoKit/GPIO   │                │
-│                                └──────────────────┘                │
-└─────────────────────────────────────────────────────────────────────┘
-                                    ↕ HTTP
-┌─────────────────────────────────────────────────────────────────────┐
-│                         LAPTOP CLIENT                               │
-│                                                                     │
-│  ┌──────────────────┐         ┌──────────────────────────────┐   │
-│  │   Video Display  │  <────  │   MJPEG Stream Decoder       │   │
-│  │   (640x480)      │         │   (Background Thread)        │   │
-│  └──────────────────┘         └──────────────────────────────┘   │
-│           │                                                         │
-│           ↓                                                         │
-│  ┌──────────────────────────────────────────┐                     │
-│  │   ML Model (PyTorch - GPU Accelerated)   │                     │
-│  │   - EfficientNetV2-S / ConvNeXt / ResNet  │                     │
-│  │   - Real-time Inference (~30-60 FPS)     │                     │
-│  │   - Confidence Scoring                    │                     │
-│  └──────────────────────────────────────────┘                     │
-│           │                                                         │
-│           ↓                                                         │
-│  ┌──────────────────────────────────────────┐                     │
-│  │   Manual Control / Auto-Trigger           │                     │
-│  │   - Send Commands to Pi                   │                     │
-│  │   - Log Detections                        │                     │
-│  └──────────────────────────────────────────┘                     │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           🥧 RASPBERRY PI SERVER                                │
+│                                                                                 │
+│  ┌──────────────────────┐                                                      │
+│  │   📷 Pi Camera       │         ┌────────────────────────────────────┐      │
+│  │  (Picamera2 or USB)  │  ────>  │   🌐 Flask Server (Port 5000)     │      │
+│  └──────────────────────┘         │      • /video_feed (MJPEG)         │      │
+│                                    │      • /command (POST JSON)        │      │
+│                                    │      • /status (GET)               │      │
+│                                    └────────────────────────────────────┘      │
+│                                                  │                              │
+│                                                  ↓                              │
+│                                    ┌────────────────────────────┐              │
+│                                    │   🦾 Robotic Arm           │              │
+│                                    │   ServoKit/GPIO/PCA9685    │              │
+│                                    └────────────────────────────┘              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                          ↕  HTTP (1-3 Mbps)
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           💻 LAPTOP CLIENT (GPU)                                │
+│                                                                                 │
+│  ┌──────────────────────┐         ┌────────────────────────────────────┐      │
+│  │   🖼️ Video Display   │  <────  │   📡 MJPEG Stream Decoder          │      │
+│  │   (640×480 @ 30fps)  │         │   (Background Thread)              │      │
+│  └──────────────────────┘         └────────────────────────────────────┘      │
+│            │                                                                    │
+│            ↓                                                                    │
+│  ┌─────────────────────────────────────────────────────────┐                  │
+│  │   🧠 ML Model (PyTorch - CUDA Accelerated)             │                  │
+│  │      • EfficientNetV2-S / ConvNeXt / ResNet            │                  │
+│  │      • Real-time Inference (~30-60 FPS)                │                  │
+│  │      • Confidence Scoring & Class Prediction           │                  │
+│  └─────────────────────────────────────────────────────────┘                  │
+│            │                                                                    │
+│            ↓                                                                    │
+│  ┌─────────────────────────────────────────────────────────┐                  │
+│  │   🎮 Manual Control / Auto-Trigger                      │                  │
+│  │      • Send Commands to Pi (2s cooldown)               │                  │
+│  │      • Activity Logging with Timestamps                │                  │
+│  │      • FPS Counter & Connection Status                 │                  │
+│  └─────────────────────────────────────────────────────────┘                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+<br>
+
+<div align="center">
+
+### 🔄 Data Flow
+
+```mermaid
+graph LR
+    A[📷 Camera] -->|Video Frame| B[🥧 Pi Server]
+    B -->|MJPEG Stream| C[💻 Laptop Client]
+    C -->|Image Processing| D[🧠 ML Model]
+    D -->|Prediction| E{Confidence?}
+    E -->|High| F[🤖 Auto-Trigger]
+    E -->|Low| G[👤 Manual Control]
+    F -->|Command| B
+    G -->|Command| B
+    B -->|GPIO Signal| H[🦾 Robotic Arm]
+```
+
+</div>
+
+<br>
+
+<div align="center">
 
 ## 🚀 Quick Start
 
-### Prerequisites
+</div>
 
-- **Raspberry Pi** (3B+ or newer) with camera
-- **Laptop/Desktop** with NVIDIA GPU (RTX 3050 or better recommended)
-- Both devices on same Wi-Fi network
-- Python 3.7+ on both devices
+### 📋 Prerequisites
 
-### 1. Clone Repository
+<table>
+<tr>
+<td width="50%" align="center">
+
+#### 🥧 Raspberry Pi
+- Pi 3B+ or newer
+- Camera (Pi Module or USB)
+- Python 3.7+
+- Same Wi-Fi network
+
+</td>
+<td width="50%" align="center">
+
+#### 💻 Laptop/Desktop
+- NVIDIA GPU (RTX 3050+)
+- 8GB+ RAM
+- Python 3.7+
+- Same Wi-Fi network
+
+</td>
+</tr>
+</table>
+
+<br>
+
+### 🎯 Installation Steps
+
+> **Note**: Follow these steps in order for a smooth setup experience.
+
+<br>
+
+#### **Step 1️⃣: Clone Repository**
 
 ```bash
-git clone <repository-url>
-cd "BUYO LEAVES"
+git clone https://github.com/yourusername/buyo-leaves.git
+cd buyo-leaves
 ```
 
-### 2. Setup Raspberry Pi Server
+<br>
+
+#### **Step 2️⃣: Setup Raspberry Pi Server**
 
 ```bash
+# Navigate to Pi server directory
 cd raspberry_pi_server
+
+# Install dependencies
 pip3 install -r requirements.txt
 
 # Optional: Pi Camera Module support
@@ -186,33 +361,69 @@ pip3 install RPi.GPIO adafruit-circuitpython-servokit
 python3 pi_server_gui.py
 ```
 
-**Note the IP address** displayed in the GUI (e.g., `192.168.1.105`)
+> ⚠️ **Important**: Note the IP address displayed in the GUI (e.g., `192.168.1.105`)
 
-### 3. Setup Laptop Client
+<br>
+
+#### **Step 3️⃣: Setup Laptop Client**
 
 ```bash
+# Navigate to laptop client directory
 cd laptop_client
+
+# Install dependencies
 pip install -r requirements.txt
 
 # Install PyTorch with CUDA support
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
-# Ensure buyo_best.pth is in project root
+# Verify model file exists
 ls ../buyo_best.pth
 
 # Run GUI client
 python laptop_client_gui.py
 ```
 
-### 4. Connect and Test
+<br>
 
-1. Enter Pi IP address in laptop GUI
-2. Click **Connect**
+#### **Step 4️⃣: Connect and Test** ✅
+
+<table>
+<tr>
+<td>
+
+1. **Enter Pi IP** address in laptop GUI
+2. Click **Connect** button
 3. Video feed should appear
 4. Toggle **Enable Vision Detection**
 5. Test manual controls
 
----
+</td>
+<td align="center">
+
+```
+┌─────────────────────┐
+│   Connection OK!    │
+│   🟢 Connected      │
+│   📹 Video: 30 FPS  │
+│   🧠 GPU: Active    │
+└─────────────────────┘
+```
+
+</td>
+</tr>
+</table>
+
+<br>
+
+<div align="center">
+
+### 🎉 You're Ready to Go!
+
+[![Quick Setup Guide](https://img.shields.io/badge/📖-Quick_Setup_Guide-blue?style=for-the-badge)](QUICK_SETUP_GUIDE.md)
+[![Full Documentation](https://img.shields.io/badge/📚-Full_Documentation-green?style=for-the-badge)](PROJECT_OVERVIEW.md)
+
+</div>
 
 ## 💾 Installation
 
@@ -629,60 +840,113 @@ docker run -p 5000:5000 --gpus all buyo-classifier
 
 ---
 
+<br>
+
+<div align="center">
+
 ## 📊 Performance
 
-### Model Accuracy
+</div>
 
-| Model              | Architecture | Validation Acc | Params | Inference (GPU) | Source |
-|--------------------|--------------|----------------|--------|-----------------|--------|
-| EfficientNetV2-S   | ![Google](https://img.shields.io/badge/-Google-4285F4?style=flat-square&logo=google&logoColor=white) | 72.4%          | 21M    | ~17ms          | ImageNet |
-| ConvNeXt-Tiny      | ![Meta](https://img.shields.io/badge/-Meta-0467DF?style=flat-square&logo=meta&logoColor=white) | 74.1%          | 28M    | ~20ms          | ImageNet |
-| ResNet50           | ![Microsoft](https://img.shields.io/badge/-Microsoft-00A4EF?style=flat-square&logo=microsoft&logoColor=white) | 70.8%          | 25M    | ~15ms          | ImageNet |
-| **Ensemble**       | 🎯 **Combined** | **75.3%**      | 28M    | ~20ms          | Custom |
-| Distilled          | 📦 **Single Model** | 73.9%          | 28M    | ~20ms          | Custom |
+### 🎯 Model Accuracy Comparison
 
-**Training Stack:**
-- ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white) Deep learning framework
-- ![CUDA](https://img.shields.io/badge/CUDA-76B900?style=flat-square&logo=nvidia&logoColor=white) GPU acceleration
-- ![Mixed Precision](https://img.shields.io/badge/AMP-FP16-orange?style=flat-square) Automatic Mixed Precision
+<div align="center">
 
-### Per-Class Accuracy (Best Model)
+| Model | Architecture | Val Accuracy | Parameters | Inference (GPU) | Source |
+|-------|-------------|--------------|------------|-----------------|---------|
+| **EfficientNetV2-S** | ![Google](https://img.shields.io/badge/-Google-4285F4?style=flat-square&logo=google&logoColor=white) | 72.4% | 21M | ~17ms | ImageNet |
+| **ConvNeXt-Tiny** | ![Meta](https://img.shields.io/badge/-Meta-0467DF?style=flat-square&logo=meta&logoColor=white) | 74.1% | 28M | ~20ms | ImageNet |
+| **ResNet50** | ![Microsoft](https://img.shields.io/badge/-Microsoft-00A4EF?style=flat-square&logo=microsoft&logoColor=white) | 70.8% | 25M | ~15ms | ImageNet |
+| **🏆 Ensemble** | Combined | **75.3%** | 28M | ~20ms | Custom |
+| **📦 Distilled** | Single Model | **73.9%** | 28M | ~20ms | Custom |
 
-| Class   | Precision | Recall | F1-Score | Support |
-|---------|-----------|--------|----------|---------|
-| CLASS A | 0.82      | 0.85   | 0.83     | 46      |
-| CLASS B | 0.65      | 0.60   | 0.62     | 33      |
-| CLASS C | 0.71      | 0.73   | 0.72     | 30      |
-| CLASS D | 0.68      | 0.70   | 0.69     | 30      |
-| CLASS E | 0.74      | 0.72   | 0.73     | 29      |
+</div>
 
-**Overall Accuracy:** 73.2% on validation set
+<br>
 
-### System Performance
+### 📈 Per-Class Performance (Best Model)
 
-| Metric                  | Value       |
-|-------------------------|-------------|
-| Video Streaming Latency | 100-200ms   |
-| Classification Latency  | 20-50ms     |
-| Total System Latency    | 150-300ms   |
-| Video FPS               | 20-30       |
-| Inference FPS (GPU)     | 30-60       |
-| Bandwidth Required      | 1-3 Mbps    |
+<div align="center">
 
-### Hardware Requirements
+```
+┌─────────┬───────────┬────────┬──────────┬─────────┬──────────────┐
+│  Class  │ Precision │ Recall │ F1-Score │ Support │ Performance  │
+├─────────┼───────────┼────────┼──────────┼─────────┼──────────────┤
+│ CLASS A │   0.82    │  0.85  │   0.83   │   46    │ ████████████ │
+│ CLASS B │   0.65    │  0.60  │   0.62   │   33    │ ███████      │
+│ CLASS C │   0.71    │  0.73  │   0.72   │   30    │ █████████    │
+│ CLASS D │   0.68    │  0.70  │   0.69   │   30    │ ████████     │
+│ CLASS E │   0.74    │  0.72  │   0.73   │   29    │ █████████    │
+└─────────┴───────────┴────────┴──────────┴─────────┴──────────────┘
 
-**Laptop/Desktop:**
-- NVIDIA GPU with 4GB+ VRAM (RTX 3050 or better)
-- 8GB+ RAM
-- 5GB+ free disk space
+                Overall Accuracy: 73.2% ✨
+```
 
-**Raspberry Pi:**
-- Raspberry Pi 3B+ or newer
-- 2GB+ RAM
-- Camera (Pi Camera Module or USB webcam)
-- Optional: PCA9685 servo controller
+</div>
 
----
+<br>
+
+### ⚡ System Performance Metrics
+
+<table>
+<tr>
+<td width="50%">
+
+#### 🚀 Latency Breakdown
+
+| Component | Latency |
+|-----------|---------|
+| Video Streaming | 100-200ms |
+| Classification | 20-50ms |
+| **Total System** | **150-300ms** |
+
+</td>
+<td width="50%">
+
+#### 📹 Throughput
+
+| Metric | Value |
+|--------|-------|
+| Video FPS | 20-30 |
+| Inference FPS | 30-60 |
+| Bandwidth | 1-3 Mbps |
+
+</td>
+</tr>
+</table>
+
+<br>
+
+### 💻 Hardware Requirements
+
+<div align="center">
+
+| Component | Laptop/Desktop | Raspberry Pi |
+|-----------|---------------|--------------|
+| **Processor** | Intel i5/AMD Ryzen 5+ | Broadcom BCM2711 (Pi 4) |
+| **GPU** | NVIDIA RTX 3050+ (4GB VRAM) | - |
+| **RAM** | 8GB+ | 2GB+ |
+| **Storage** | 5GB+ free space | 2GB+ free space |
+| **Network** | Wi-Fi 5 (802.11ac) | Wi-Fi 4/5 |
+| **Extras** | - | Camera Module/USB |
+
+</div>
+
+<br>
+
+### 🎯 Training Performance
+
+<div align="center">
+
+| Configuration | GPU | Training Time | Best Accuracy |
+|--------------|-----|---------------|---------------|
+| Single Model | RTX 3050 | 45-60 min | 72.4% |
+| Ensemble (3 models) | RTX 3050 | 2-4 hours | 75.3% |
+| Ultra-Optimized | RTX 3080 | 30-40 min | 74.8% |
+
+**Training Stack**: ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white) ![CUDA](https://img.shields.io/badge/CUDA-76B900?style=flat-square&logo=nvidia&logoColor=white) ![Mixed Precision](https://img.shields.io/badge/AMP-FP16-orange?style=flat-square)
+
+</div>
 
 ## 🔧 Troubleshooting
 
@@ -935,24 +1199,251 @@ For questions, issues, or feature requests:
 - **Development Time:** 3+ months
 - **Contributors:** 1
 
+<br>
+
 ---
+
+<div align="center">
 
 ## 🎉 Getting Started Checklist
 
+<table>
+<tr>
+<td>
+
+### Setup Phase
 - [ ] Clone repository
-- [ ] Install dependencies on both devices
-- [ ] Prepare dataset with `prepare_dataset.py`
-- [ ] Train model with `train_ensemble.py` (2-4 hours)
+- [ ] Install Pi dependencies
+- [ ] Install laptop dependencies
+- [ ] Verify camera works
+- [ ] Test GPU connectivity
+
+</td>
+<td>
+
+### Training Phase
+- [ ] Prepare dataset
+- [ ] Diagnose data quality
+- [ ] Train ensemble model
+- [ ] Evaluate performance
+- [ ] Convert to TFLite (optional)
+
+</td>
+<td>
+
+### Deployment Phase
 - [ ] Start Pi server GUI
 - [ ] Start laptop client GUI
-- [ ] Connect and test video feed
+- [ ] Connect and test video
 - [ ] Test manual controls
-- [ ] Enable vision detection
-- [ ] Customize servo code (optional)
-- [ ] Deploy to production!
+- [ ] Enable auto-detection
+
+</td>
+</tr>
+</table>
+
+</div>
+
+<br>
 
 ---
 
+<div align="center">
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [📘 Project Overview](PROJECT_OVERVIEW.md) | Complete project documentation |
+| [🚀 Quick Setup Guide](QUICK_SETUP_GUIDE.md) | Step-by-step setup instructions |
+| [🖥️ GUI System Summary](GUI_SYSTEM_SUMMARY.md) | GUI implementation details |
+| [🥧 Raspberry Pi Setup](RASPBERRY_PI_SETUP.txt) | Pi-specific configuration |
+
+</div>
+
+<br>
+
+---
+
+<div align="center">
+
+## 🙏 Acknowledgments
+
+This project builds upon incredible work from:
+
+<table>
+<tr>
+<td align="center" width="25%">
+<img src="https://www.gstatic.com/images/branding/product/2x/google_research_64dp.png" width="50"><br>
+<b>Google Research</b><br>
+<sub>EfficientNet Architecture</sub>
+</td>
+<td align="center" width="25%">
+<img src="https://about.fb.com/wp-content/uploads/2023/07/Meta-Logo.png" width="50"><br>
+<b>Meta AI</b><br>
+<sub>ConvNeXt Architecture</sub>
+</td>
+<td align="center" width="25%">
+<img src="https://img-prod-cms-rt-microsoft-com.akamaized.net/cms/api/am/imageFileData/RE1Mu3b?ver=5c31" width="50"><br>
+<b>Microsoft Research</b><br>
+<sub>ResNet Architecture</sub>
+</td>
+<td align="center" width="25%">
+<img src="https://pytorch.org/assets/images/pytorch-logo.png" width="50"><br>
+<b>PyTorch Team</b><br>
+<sub>Deep Learning Framework</sub>
+</td>
+</tr>
+</table>
+
+Special thanks to:
+- **Raspberry Pi Foundation** for the hardware platform
+- **OpenCV Community** for computer vision tools
+- **Flask Team** for the web framework
+- All open-source contributors who made this possible
+
+</div>
+
+<br>
+
+---
+
+<div align="center">
+
+## 📞 Support & Contact
+
+<br>
+
+[![Issues](https://img.shields.io/badge/Issues-Report_Bug-red?style=for-the-badge&logo=github)](https://github.com/yourusername/buyo-leaves/issues)
+[![Discussions](https://img.shields.io/badge/Discussions-Ask_Question-blue?style=for-the-badge&logo=github)](https://github.com/yourusername/buyo-leaves/discussions)
+[![Wiki](https://img.shields.io/badge/Wiki-Documentation-green?style=for-the-badge&logo=github)](https://github.com/yourusername/buyo-leaves/wiki)
+
+<br>
+
+### Need Help?
+
+1. 📖 Check [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for detailed documentation
+2. 🚀 Review [QUICK_SETUP_GUIDE.md](QUICK_SETUP_GUIDE.md) for setup help
+3. 🔍 Search existing [GitHub Issues](https://github.com/yourusername/buyo-leaves/issues)
+4. 💬 Start a [Discussion](https://github.com/yourusername/buyo-leaves/discussions)
+5. 🐛 Open a [New Issue](https://github.com/yourusername/buyo-leaves/issues/new) with details
+
+</div>
+
+<br>
+
+---
+
+<div align="center">
+
+## 🗺️ Roadmap
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+### ✅ Version 2.0
+**Current Release**
+
+- GUI system for both devices
+- Remote GPU processing
+- Multiple architectures
+- Ensemble training
+- TFLite conversion
+
+</td>
+<td width="33%" align="center">
+
+### 🚧 Version 2.1
+**In Progress**
+
+- Web dashboard
+- Database logging
+- REST API
+- Multi-camera support
+- Cloud deployment
+
+</td>
+<td width="33%" align="center">
+
+### 🔮 Version 3.0
+**Planned**
+
+- Mobile app (iOS/Android)
+- YOLO object detection
+- Batch processing
+- PDF/Excel reports
+- Multi-language UI
+
+</td>
+</tr>
+</table>
+
+</div>
+
+<br>
+
+---
+
+<div align="center">
+
+## 📊 Project Statistics
+
+![Lines of Code](https://img.shields.io/badge/Lines_of_Code-15K+-blue?style=flat-square)
+![Python Files](https://img.shields.io/badge/Python_Files-28-green?style=flat-square)
+![Models](https://img.shields.io/badge/Trained_Models-6-orange?style=flat-square)
+![Dataset](https://img.shields.io/badge/Images-836-purple?style=flat-square)
+![Classes](https://img.shields.io/badge/Classes-5-red?style=flat-square)
+
+</div>
+
+<br>
+
+---
+
+<div align="center">
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+### Third-Party Licenses
+
+| Component | License |
+|-----------|---------|
+| PyTorch | BSD License |
+| OpenCV | Apache 2.0 |
+| Flask | BSD License |
+| torchvision | BSD License |
+
+</div>
+
+<br>
+
+---
+
+<div align="center">
+
+<br>
+
+### 🌟 Star this repository if you found it helpful!
+
+<br>
+
 **Built with ❤️ for automated Buyo leaf grading**
 
-*Last updated: November 20, 2026*
+<br>
+
+![Python](https://img.shields.io/badge/Made_with-Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/Powered_by-PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
+![Raspberry Pi](https://img.shields.io/badge/Runs_on-Raspberry_Pi-A22846?style=for-the-badge&logo=raspberry-pi&logoColor=white)
+
+<br>
+
+*Last Updated: November 21, 2026*
+
+<br>
+
+[![Back to Top](https://img.shields.io/badge/⬆️-Back_to_Top-blue?style=for-the-badge)](#-buyo-leaf-classifier)
+
+</div>
