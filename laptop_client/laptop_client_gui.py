@@ -343,10 +343,11 @@ def detect_target(frame):
         }
     
     try:
-        # First check if frame contains green leaf-like colors
+        # Check if frame contains green leaf-like colors (when filter is enabled)
         has_green = check_if_green_leaf(frame)
         
-        if not has_green:
+        # If green filter is enabled and no green detected, skip inference
+        if USE_COLOR_FILTER and not has_green:
             # No green content - likely not a Buyo leaf
             annotated = frame.copy()
             h, w = frame.shape[:2]
