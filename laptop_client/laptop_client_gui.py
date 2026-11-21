@@ -162,13 +162,13 @@ def scan_network_for_pi(progress_callback=None):
             if check_pi_server(ip, port):
                 print(f"  ✓ Found Pi server at {ip}:{port}")
                 results.append((ip, port))
-                return results  # Return immediately on first find
+                return results  # Return all found servers (currently just returns first)
     
-    # If not found, scan full range sequentially
+    # If not found in priority range, do limited scan (first 50 IPs only for speed)
     if progress_callback:
-        progress_callback("Scanning full network range...")
+        progress_callback("Scanning network range...")
     
-    for i in range(1, 255):
+    for i in range(1, 51):  # Limited to first 50 IPs for faster discovery
         ip = f"{network_prefix}.{i}"
         
         if ip in scanned:
@@ -867,22 +867,25 @@ class LaptopClientGUI:
         # Create progress dialog
         progress_dialog = tk.Toplevel(self.root)
         progress_dialog.title("Discovering Raspberry Pi")
-        progress_dialog.geometry("400x150")
+        progress_dialog.geometry("450x180")
         progress_dialog.configure(bg='#2b2b2b')
         progress_dialog.transient(self.root)
         progress_dialog.grab_set()
         
         # Center dialog
         progress_dialog.update_idletasks()
-        x = (progress_dialog.winfo_screenwidth() // 2) - 200
-        y = (progress_dialog.winfo_screenheight() // 2) - 75
-        progress_dialog.geometry(f"400x150+{x}+{y}")
+        x = (progress_dialog.winfo_screenwidth() // 2) - 225
+        y = (progress_dialog.winfo_screenheight() // 2) - 90
+        progress_dialog.geometry(f"450x180+{x}+{y}")
+        
+        tk.Label(progress_dialog, text="🔍 Discovering Raspberry Pi Servers",
+                font=('Arial', 12, 'bold'), bg='#2b2b2b', fg='#4a90e2').pack(pady=10)
         
         status_label = tk.Label(progress_dialog, text="Scanning network...",
                                font=('Arial', 10), bg='#2b2b2b', fg='#ffffff')
-        status_label.pack(pady=20)
+        status_label.pack(pady=5)
         
-        progress_bar = ttk.Progressbar(progress_dialog, mode='indeterminate', length=300)
+        progress_bar = ttk.Progressbar(progress_dialog, mode='indeterminate', length=350)
         progress_bar.pack(pady=10)
         progress_bar.start()
         
@@ -898,14 +901,8 @@ class LaptopClientGUI:
                 progress_dialog.destroy()
                 
                 if results:
-                    ip, port = results[0]
-                    self.pi_ip.set(ip)
-                    self.pi_port = port
-                    save_pi_ip(ip)
-                    
-                    self.log(f"✓ Found Pi server at {ip}:{port}", 'SUCCESS')
-                    messagebox.showinfo("Pi Found", 
-                                       f"Raspberry Pi server found at:\n{ip}:{port}\n\nClick Connect to establish connection.")
+                    # Show found servers and auto-connect
+                    self.show_found_servers_dialog(results)
                 else:
                     self.log("✗ No Pi server found on network", 'WARNING')
                     messagebox.showwarning("Not Found", 
@@ -920,6 +917,87 @@ class LaptopClientGUI:
                 self.log(f"✗ Discovery error: {str(e)}", 'ERROR')
         
         threading.Thread(target=discover, daemon=True).start()
+    
+    def show_found_servers_dialog(self, servers):
+        """Show dialog with found servers and option to connect"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Pi Found")
+        dialog.geometry("500x300")
+        dialog.configure(bg='#2b2b2b')
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - 250
+        y = (dialog.winfo_screenheight() // 2) - 150
+        dialog.geometry(f"500x300+{x}+{y}")
+        
+        # Title
+        title_frame = tk.Frame(dialog, bg='#1e1e1e', pady=10)
+        title_frame.pack(fill=tk.X)
+        
+        tk.Label(title_frame, text="✓ Raspberry Pi Server Found!",
+                font=('Arial', 14, 'bold'), bg='#1e1e1e', fg='#4caf50').pack()
+        
+        # Server list
+        list_frame = tk.LabelFrame(dialog, text=" Found Servers ", font=('Arial', 10, 'bold'),
+                                   bg='#2b2b2b', fg='#ffffff')
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # Create listbox with scrollbar
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        server_listbox = tk.Listbox(list_frame, font=('Consolas', 11),
+                                     bg='#1a1a1a', fg='#00ff00',
+                                     selectmode=tk.SINGLE, height=6,
+                                     yscrollcommand=scrollbar.set)
+        server_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.config(command=server_listbox.yview)
+        
+        # Populate server list
+        for i, (ip, port) in enumerate(servers):
+            server_listbox.insert(tk.END, f"  {i+1}. {ip}:{port}")
+        
+        # Select first server by default
+        if servers:
+            server_listbox.select_set(0)
+        
+        # Info label
+        tk.Label(dialog, text="Click 'Connect' to establish connection automatically",
+                font=('Arial', 9), bg='#2b2b2b', fg='#888888').pack(pady=5)
+        
+        # Buttons
+        btn_frame = tk.Frame(dialog, bg='#2b2b2b')
+        btn_frame.pack(pady=10)
+        
+        def connect_selected():
+            selection = server_listbox.curselection()
+            if selection:
+                idx = selection[0]
+                ip, port = servers[idx]
+                
+                # Set IP and port
+                self.pi_ip.set(ip)
+                self.pi_port = port
+                save_pi_ip(ip)
+                
+                self.log(f"✓ Selected Pi server at {ip}:{port}", 'SUCCESS')
+                dialog.destroy()
+                
+                # Auto-connect
+                self.toggle_connection()
+            else:
+                messagebox.showwarning("No Selection", "Please select a server from the list")
+        
+        tk.Button(btn_frame, text="✓ Connect", command=connect_selected,
+                 font=('Arial', 11, 'bold'), bg='#4caf50', fg='white',
+                 padx=30, pady=10).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy,
+                 font=('Arial', 10), bg='#666666', fg='white',
+                 padx=20, pady=10).pack(side=tk.LEFT, padx=5)
     
     def test_connection(self):
         """Test connection to Raspberry Pi"""
