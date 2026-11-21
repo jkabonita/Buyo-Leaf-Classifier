@@ -292,6 +292,70 @@ def status():
         'arm': 'available' if ARM_AVAILABLE else 'unavailable'
     })
 
+@app.route('/peripherals', methods=['GET'])
+def peripherals():
+    """Peripheral detection endpoint - returns status of all connected hardware"""
+    try:
+        import os
+        
+        # Camera detection
+        camera_status = {
+            'status': 'Online' if camera else 'Offline',
+            'device': 'Pi Camera' if PICAMERA2_AVAILABLE and camera else 'USB Webcam' if camera else 'Not detected'
+        }
+        
+        # Stepper motor detection (GPIO pins)
+        stepper_status = {
+            'status': 'Ready' if ARM_AVAILABLE else 'Not available',
+            'pins': 'DIR=27, STEP=17, EN=22' if ARM_AVAILABLE else 'N/A'
+        }
+        
+        # MG996R Camera Servo detection
+        servo_camera_status = {
+            'status': 'Online' if kit else 'Offline',
+            'channel': 'PCA9685 CH15 (0x40)' if kit else 'N/A'
+        }
+        
+        # Robotic arm bus detection
+        pca9685_0x40_status = {
+            'status': 'Online' if kit else 'Offline',
+            'channels': '9 arms (CH0-8)' if kit else 'N/A'
+        }
+        
+        # Check for second PCA9685 board
+        pca9685_0x41_detected = False
+        try:
+            if ARM_AVAILABLE:
+                import smbus2
+                bus = smbus2.SMBus(1)
+                bus.write_quick(0x41)
+                pca9685_0x41_detected = True
+        except:
+            pass
+        
+        pca9685_0x41_status = {
+            'status': 'Online' if pca9685_0x41_detected else 'Not detected',
+            'channels': 'Available' if pca9685_0x41_detected else 'N/A'
+        }
+        
+        return jsonify({
+            'camera': camera_status,
+            'stepper': stepper_status,
+            'servo_camera': servo_camera_status,
+            'pca9685_0x40': pca9685_0x40_status,
+            'pca9685_0x41': pca9685_0x41_status
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'camera': {'status': 'Error', 'device': 'N/A'},
+            'stepper': {'status': 'Error', 'pins': 'N/A'},
+            'servo_camera': {'status': 'Error', 'channel': 'N/A'},
+            'pca9685_0x40': {'status': 'Error', 'channels': 'N/A'},
+            'pca9685_0x41': {'status': 'Error', 'channels': 'N/A'}
+        }), 500
+
 @app.route('/command', methods=['POST'])
 def command():
     """Command endpoint - receives commands from laptop"""
@@ -338,7 +402,7 @@ def execute_arm_action(action, params=None):
     ⚠️ PLUG IN YOUR SERVO/MOTOR LIBRARY CODE HERE ⚠️
     
     Args:
-        action: Action command (e.g., 'grab', 'drop', 'home')
+        action: Action command (e.g., 'grab', 'drop', 'home', 'rotate', 'camera', 'camera_sweep')
         params: Additional parameters (e.g., {'arm': 1, 'class': 'CLASS A'})
     
     Returns:
@@ -384,6 +448,49 @@ def execute_arm_action(action, params=None):
                 time.sleep(0.3)
                 kit.servo[channel].angle = ARM_HOME_ANGLE
                 return f"✓ Arm #{arm_num} test complete"
+        
+        elif action == 'rotate':
+            # Stepper motor - rotate carousel to class position
+            target_class = params.get('class', 'A')
+            # NOTE: This requires stepper motor control code from gui.py
+            # Import execute_rotate function or implement stepper control here
+            try:
+                # Placeholder - integrate with your stepper control code
+                import sys
+                sys.path.insert(0, '/home/pi/buyo')  # Adjust path as needed
+                from gui import execute_rotate
+                execute_rotate(target_class)
+                return f"✓ Carousel rotated to Class {target_class}"
+            except Exception as e:
+                return f"⚠ Stepper control not available: {str(e)}"
+        
+        elif action == 'camera':
+            # MG996R servo - move camera to arm position
+            position = params.get('position', 1)
+            # NOTE: This requires servo control code from gui.py
+            try:
+                # Placeholder - integrate with your camera servo control code
+                # Typically uses kit.servo[CAMERA_CHANNEL] or kit.continuous_servo
+                CAMERA_CHANNEL = 15  # Adjust to your configuration
+                angle = (position - 1) * 20  # Example: 20 degrees per arm
+                kit.servo[CAMERA_CHANNEL].angle = min(180, max(0, angle))
+                return f"✓ Camera moved to Arm #{position} ({angle}°)"
+            except Exception as e:
+                return f"⚠ Camera servo control error: {str(e)}"
+        
+        elif action == 'camera_sweep':
+            # Sweep camera through all 9 arm positions
+            try:
+                CAMERA_CHANNEL = 15
+                for i in range(1, 10):
+                    angle = (i - 1) * 20
+                    kit.servo[CAMERA_CHANNEL].angle = min(180, max(0, angle))
+                    time.sleep(0.5)
+                # Return to position 1
+                kit.servo[CAMERA_CHANNEL].angle = 0
+                return "✓ Camera sweep complete (9 positions)"
+            except Exception as e:
+                return f"⚠ Camera sweep error: {str(e)}"
         
         else:
             return f"⚠ Unknown action: {action}"
