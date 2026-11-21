@@ -103,26 +103,60 @@ def scan_network_for_pi(progress_callback=None):
     """
     Scan local network for Raspberry Pi server
     Returns list of (ip, port) tuples where server was found
+    
+    Scanning strategy:
+    1. Check last successful IP first
+    2. Scan nearby IPs (±10 from last IP) sequentially
+    3. Scan full range sequentially if not found
     """
     results = []
     network_prefix = get_network_prefix()
     
     print(f"🔍 Scanning network {network_prefix}.x for Pi server...")
     
-    # Common IPs to check first (faster)
-    priority_ips = [
-        load_saved_ip(),  # Last successful IP
-        f"{network_prefix}.100",
-        f"{network_prefix}.101",
-        f"{network_prefix}.105",
-        f"{network_prefix}.10",
-        f"{network_prefix}.20",
-    ]
+    # Get last successful IP
+    last_ip = load_saved_ip()
+    last_host_num = None
+    
+    # Extract host number from last IP
+    try:
+        if last_ip and last_ip.startswith(network_prefix):
+            last_host_num = int(last_ip.split('.')[-1])
+    except:
+        pass
+    
+    # Priority scan list based on connection history
+    scanned = set()
+    priority_ips = []
+    
+    if last_host_num is not None:
+        # Check last successful IP first
+        priority_ips.append(f"{network_prefix}.{last_host_num}")
+        
+        # Then check nearby IPs sequentially (±10 range)
+        # Order: last+1, last-1, last+2, last-2, ...
+        for offset in range(1, 11):
+            if 1 <= last_host_num + offset <= 254:
+                priority_ips.append(f"{network_prefix}.{last_host_num + offset}")
+            if 1 <= last_host_num - offset <= 254:
+                priority_ips.append(f"{network_prefix}.{last_host_num - offset}")
+    else:
+        # No history - check common IPs
+        priority_ips = [
+            f"{network_prefix}.100",
+            f"{network_prefix}.101",
+            f"{network_prefix}.102",
+            f"{network_prefix}.10",
+            f"{network_prefix}.11",
+            f"{network_prefix}.12",
+        ]
     
     # Check priority IPs first
     for ip in priority_ips:
         if progress_callback:
             progress_callback(f"Checking {ip}...")
+        
+        scanned.add(ip)
         
         for port in COMMON_PI_PORTS:
             if check_pi_server(ip, port):
@@ -130,17 +164,17 @@ def scan_network_for_pi(progress_callback=None):
                 results.append((ip, port))
                 return results  # Return immediately on first find
     
-    # If not found, scan full range (this can take time)
+    # If not found, scan full range sequentially
     if progress_callback:
         progress_callback("Scanning full network range...")
     
     for i in range(1, 255):
         ip = f"{network_prefix}.{i}"
         
-        if ip in priority_ips:
+        if ip in scanned:
             continue  # Already checked
         
-        if progress_callback and i % 10 == 0:
+        if progress_callback and i % 5 == 0:
             progress_callback(f"Scanning {ip}...")
         
         for port in COMMON_PI_PORTS:
