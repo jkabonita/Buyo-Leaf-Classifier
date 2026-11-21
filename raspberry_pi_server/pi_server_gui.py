@@ -465,32 +465,61 @@ def execute_arm_action(action, params=None):
                 return f"⚠ Stepper control not available: {str(e)}"
         
         elif action == 'camera':
-            # MG996R servo - move camera to arm position
+            # MG996R servo - move camera to arm position (180° standard mode)
             position = params.get('position', 1)
-            # NOTE: This requires servo control code from gui.py
             try:
-                # Placeholder - integrate with your camera servo control code
-                # Typically uses kit.servo[CAMERA_CHANNEL] or kit.continuous_servo
-                CAMERA_CHANNEL = 15  # Adjust to your configuration
-                angle = (position - 1) * 20  # Example: 20 degrees per arm
-                kit.servo[CAMERA_CHANNEL].angle = min(180, max(0, angle))
-                return f"✓ Camera moved to Arm #{position} ({angle}°)"
+                CAMERA_CHANNEL = 15  # MG996R on PCA9685 CH15
+                SERVO_ARM1_ANGLE = 0  # Origin angle for Arm #1
+                SERVO_STEP_DEG = 2    # 2° per arm (9 arms = 0° to 16°)
+                
+                # Calculate target angle: Arm #1 = 0°, Arm #2 = 2°, ..., Arm #9 = 16°
+                target_angle = SERVO_ARM1_ANGLE + (position - 1) * SERVO_STEP_DEG
+                target_angle = max(0, min(180, target_angle))  # Safety clamp
+                
+                # Move servo to position
+                kit.servo[CAMERA_CHANNEL].angle = target_angle
+                time.sleep(0.5)  # Wait for servo to reach position
+                
+                # CRITICAL: Stop PWM to prevent continuous rotation
+                kit._pca.channels[CAMERA_CHANNEL].duty_cycle = 0
+                
+                return f"✓ Camera moved to Arm #{position} ({target_angle}°)"
             except Exception as e:
                 return f"⚠ Camera servo control error: {str(e)}"
         
         elif action == 'camera_sweep':
-            # Sweep camera through all 9 arm positions
+            # Sweep camera through all 9 arm positions (SAFE - no continuous rotation)
             try:
                 CAMERA_CHANNEL = 15
+                SERVO_ARM1_ANGLE = 0
+                SERVO_STEP_DEG = 2
+                
+                # Sweep through all 9 positions
                 for i in range(1, 10):
-                    angle = (i - 1) * 20
-                    kit.servo[CAMERA_CHANNEL].angle = min(180, max(0, angle))
-                    time.sleep(0.5)
-                # Return to position 1
-                kit.servo[CAMERA_CHANNEL].angle = 0
-                return "✓ Camera sweep complete (9 positions)"
+                    angle = SERVO_ARM1_ANGLE + (i - 1) * SERVO_STEP_DEG
+                    kit.servo[CAMERA_CHANNEL].angle = angle
+                    time.sleep(0.8)  # Hold at each position
+                
+                # Return to Arm #1 (origin)
+                kit.servo[CAMERA_CHANNEL].angle = SERVO_ARM1_ANGLE
+                time.sleep(0.5)
+                
+                # CRITICAL: Stop PWM after sweep
+                kit._pca.channels[CAMERA_CHANNEL].duty_cycle = 0
+                
+                return "✓ Camera sweep complete (9 positions, returned to Arm #1)"
             except Exception as e:
                 return f"⚠ Camera sweep error: {str(e)}"
+        
+        elif action == 'camera_stop':
+            # EMERGENCY STOP - immediately kill camera servo PWM
+            try:
+                CAMERA_CHANNEL = 15
+                # Force PWM to 0 to stop any movement
+                kit._pca.channels[CAMERA_CHANNEL].duty_cycle = 0
+                return "✓ Camera servo STOPPED (PWM disabled)"
+            except Exception as e:
+                return f"⚠ Camera stop error: {str(e)}"
         
         else:
             return f"⚠ Unknown action: {action}"

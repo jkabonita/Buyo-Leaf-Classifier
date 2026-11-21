@@ -791,12 +791,19 @@ class LaptopClientGUI:
                           padx=10, pady=8, width=14 if span == 1 else 30)
             btn.grid(row=row, column=col, columnspan=span, padx=2, pady=2, sticky='ew')
         
+        # EMERGENCY STOP for camera servo
+        emergency_stop_btn = tk.Button(btn_grid, text="🛑 STOP CAMERA SERVO", 
+                                       command=lambda: self.send_command('camera_stop'),
+                                       font=('Arial', 9, 'bold'), bg='#d32f2f', fg='white',
+                                       padx=10, pady=8, width=30)
+        emergency_stop_btn.grid(row=13, column=0, columnspan=2, padx=2, pady=2, sticky='ew')
+        
         # Peripheral Detection Button
         peripheral_btn = tk.Button(btn_grid, text="🔌 Detect Peripherals", 
                                    command=self.detect_peripherals,
                                    font=('Arial', 9, 'bold'), bg='#00796b', fg='white',
                                    padx=10, pady=8, width=30)
-        peripheral_btn.grid(row=13, column=0, columnspan=2, padx=2, pady=5, sticky='ew')
+        peripheral_btn.grid(row=14, column=0, columnspan=2, padx=2, pady=5, sticky='ew')
         
         # Cooldown indicator
         self.cooldown_label = tk.Label(control_frame, text="",
