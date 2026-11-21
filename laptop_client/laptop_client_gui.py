@@ -709,7 +709,7 @@ class LaptopClientGUI:
                             font=('Arial', 8), bg='#1e1e1e', fg='#888888')
         separator.grid(row=3, column=0, columnspan=2, pady=5)
         
-        # Remote control buttons (Pi only)
+        # Remote control buttons (Pi only) - Robotic Arms
         remote_buttons = [
             ("🦾 Test Arm #1", lambda: self.send_command('test', {'arm': 1}), 4, 0, 1),
             ("🦾 Test Arm #2", lambda: self.send_command('test', {'arm': 2}), 4, 1, 1),
@@ -723,6 +723,46 @@ class LaptopClientGUI:
                           font=('Arial', 9), bg='#4a90e2', fg='white',
                           padx=10, pady=8, width=14 if span == 1 else 30)
             btn.grid(row=row, column=col, columnspan=span, padx=2, pady=2, sticky='ew')
+        
+        # Separator for Stepper & Servo Controls
+        separator2 = tk.Label(btn_grid, text="━━━ Carousel & Camera Controls ━━━",
+                             font=('Arial', 8), bg='#1e1e1e', fg='#888888')
+        separator2.grid(row=7, column=0, columnspan=2, pady=5)
+        
+        # Stepper Motor Controls
+        stepper_buttons = [
+            ("⚙️ Rotate to Class A", lambda: self.send_command('rotate', {'class': 'A'}), 8, 0, 1),
+            ("⚙️ Rotate to Class B", lambda: self.send_command('rotate', {'class': 'B'}), 8, 1, 1),
+            ("⚙️ Rotate to Class C", lambda: self.send_command('rotate', {'class': 'C'}), 9, 0, 1),
+            ("⚙️ Rotate to Class D", lambda: self.send_command('rotate', {'class': 'D'}), 9, 1, 1),
+            ("⚙️ Rotate to Class E", lambda: self.send_command('rotate', {'class': 'E'}), 10, 0, 2),
+        ]
+        
+        for text, cmd, row, col, span in stepper_buttons:
+            btn = tk.Button(btn_grid, text=text, command=cmd,
+                          font=('Arial', 9), bg='#9c27b0', fg='white',
+                          padx=10, pady=8, width=14 if span == 1 else 30)
+            btn.grid(row=row, column=col, columnspan=span, padx=2, pady=2, sticky='ew')
+        
+        # Camera Servo (MG996R) Controls
+        servo_buttons = [
+            ("📹 Camera to Arm #1", lambda: self.send_command('camera', {'position': 1}), 11, 0, 1),
+            ("📹 Camera to Arm #2", lambda: self.send_command('camera', {'position': 2}), 11, 1, 1),
+            ("📹 Camera Sweep 9 Arms", lambda: self.send_command('camera_sweep'), 12, 0, 2),
+        ]
+        
+        for text, cmd, row, col, span in servo_buttons:
+            btn = tk.Button(btn_grid, text=text, command=cmd,
+                          font=('Arial', 9), bg='#ff6f00', fg='white',
+                          padx=10, pady=8, width=14 if span == 1 else 30)
+            btn.grid(row=row, column=col, columnspan=span, padx=2, pady=2, sticky='ew')
+        
+        # Peripheral Detection Button
+        peripheral_btn = tk.Button(btn_grid, text="🔌 Detect Peripherals", 
+                                   command=self.detect_peripherals,
+                                   font=('Arial', 9, 'bold'), bg='#00796b', fg='white',
+                                   padx=10, pady=8, width=30)
+        peripheral_btn.grid(row=13, column=0, columnspan=2, padx=2, pady=5, sticky='ew')
         
         # Cooldown indicator
         self.cooldown_label = tk.Label(control_frame, text="",
@@ -1806,6 +1846,131 @@ class LaptopClientGUI:
         
         # Queue command for background processing
         self.command_queue.put({'action': action, 'params': params or {}})
+    
+    def detect_peripherals(self):
+        """Detect and display connected peripherals on Raspberry Pi"""
+        if not self.connected:
+            self.log("✗ Not connected to Raspberry Pi", 'WARNING')
+            messagebox.showwarning("Not Connected", "Peripheral detection requires Raspberry Pi connection")
+            return
+        
+        self.log("🔌 Detecting peripherals on Raspberry Pi...")
+        
+        def fetch_peripherals():
+            try:
+                url = f"http://{self.pi_ip.get()}:{self.pi_port.get()}/peripherals"
+                response = requests.get(url, timeout=5)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # Display results in a dialog
+                    self.root.after(0, lambda: self.show_peripherals_dialog(data))
+                    self.log("✓ Peripheral detection complete", 'SUCCESS')
+                else:
+                    self.log(f"✗ Failed to detect peripherals: {response.status_code}", 'ERROR')
+                    
+            except requests.exceptions.Timeout:
+                self.log("✗ Peripheral detection timeout", 'ERROR')
+            except Exception as e:
+                self.log(f"✗ Peripheral detection error: {str(e)}", 'ERROR')
+        
+        threading.Thread(target=fetch_peripherals, daemon=True).start()
+    
+    def show_peripherals_dialog(self, data):
+        """Display peripheral detection results in a dialog"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("🔌 Peripheral Detection Results")
+        dialog.geometry("600x500")
+        dialog.configure(bg='#2b2b2b')
+        dialog.transient(self.root)
+        
+        # Title
+        title_frame = tk.Frame(dialog, bg='#1e1e1e', pady=10)
+        title_frame.pack(fill=tk.X)
+        
+        tk.Label(title_frame, text="🔌 Connected Peripherals",
+                font=('Arial', 14, 'bold'), bg='#1e1e1e', fg='#4a90e2').pack()
+        
+        # Scrollable content
+        canvas = tk.Canvas(dialog, bg='#2b2b2b', highlightthickness=0)
+        scrollbar = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#2b2b2b')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Peripheral status items
+        peripherals = [
+            ("📷 Camera Module", data.get('camera', {}).get('status', 'Unknown'), 
+             data.get('camera', {}).get('device', 'N/A')),
+            ("⚙️ Stepper Motor", data.get('stepper', {}).get('status', 'Unknown'),
+             data.get('stepper', {}).get('pins', 'N/A')),
+            ("📹 MG996R Servo (Camera)", data.get('servo_camera', {}).get('status', 'Unknown'),
+             data.get('servo_camera', {}).get('channel', 'N/A')),
+            ("🦾 Robotic Arm Bus (0x40)", data.get('pca9685_0x40', {}).get('status', 'Unknown'),
+             data.get('pca9685_0x40', {}).get('channels', 'N/A')),
+            ("🦾 Robotic Arm Bus (0x41)", data.get('pca9685_0x41', {}).get('status', 'Unknown'),
+             data.get('pca9685_0x41', {}).get('channels', 'N/A')),
+        ]
+        
+        for name, status, details in peripherals:
+            # Create peripheral card
+            card = tk.Frame(scrollable_frame, bg='#1e1e1e', relief=tk.RIDGE, bd=2)
+            card.pack(fill=tk.X, padx=15, pady=5)
+            
+            # Header with status indicator
+            header = tk.Frame(card, bg='#1e1e1e')
+            header.pack(fill=tk.X, padx=10, pady=5)
+            
+            tk.Label(header, text=name, font=('Arial', 11, 'bold'),
+                    bg='#1e1e1e', fg='#ffffff').pack(side=tk.LEFT)
+            
+            # Status color coding
+            if 'online' in status.lower() or 'ready' in status.lower() or 'detected' in status.lower():
+                status_color = '#4caf50'
+                status_icon = '✓'
+            elif 'offline' in status.lower() or 'not found' in status.lower() or 'error' in status.lower():
+                status_color = '#ff4444'
+                status_icon = '✗'
+            else:
+                status_color = '#ffaa00'
+                status_icon = '⚠'
+            
+            tk.Label(header, text=f"{status_icon} {status}", font=('Arial', 10, 'bold'),
+                    bg='#1e1e1e', fg=status_color).pack(side=tk.RIGHT)
+            
+            # Details
+            if details != 'N/A':
+                tk.Label(card, text=f"Details: {details}", font=('Arial', 9),
+                        bg='#1e1e1e', fg='#888888').pack(anchor=tk.W, padx=10, pady=(0, 5))
+        
+        # Summary
+        summary_frame = tk.Frame(scrollable_frame, bg='#282A36', relief=tk.RIDGE, bd=2)
+        summary_frame.pack(fill=tk.X, padx=15, pady=10)
+        
+        online_count = sum(1 for _, status, _ in peripherals 
+                          if 'online' in status.lower() or 'ready' in status.lower() or 'detected' in status.lower())
+        total_count = len(peripherals)
+        
+        tk.Label(summary_frame, text=f"📊 System Status: {online_count}/{total_count} Peripherals Online",
+                font=('Arial', 11, 'bold'), bg='#282A36', fg='#4a90e2').pack(pady=10)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Close button
+        btn_frame = tk.Frame(dialog, bg='#2b2b2b')
+        btn_frame.pack(pady=10)
+        
+        tk.Button(btn_frame, text="✓ Close", command=dialog.destroy,
+                 font=('Arial', 10, 'bold'), bg='#4a90e2', fg='white',
+                 padx=30, pady=10).pack()
     
     def upload_current_frame(self):
         """Save the current frame locally with detection class"""
