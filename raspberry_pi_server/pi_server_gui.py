@@ -521,6 +521,95 @@ def execute_arm_action(action, params=None):
             except Exception as e:
                 return f"⚠ Camera stop error: {str(e)}"
         
+        elif action == 'claw_open':
+            # Open claw (for grabbing Buyo leaf)
+            try:
+                arm_num = params.get('arm', 1)
+                channel = ARM_CHANNELS.get(arm_num)
+                if channel is not None:
+                    CLAW_OPEN_ANGLE = 90  # Adjust based on your servo
+                    kit.servo[channel].angle = CLAW_OPEN_ANGLE
+                    return f"✓ Arm #{arm_num} claw OPENED ({CLAW_OPEN_ANGLE}°)"
+                else:
+                    return f"✗ Invalid arm #{arm_num}"
+            except Exception as e:
+                return f"⚠ Claw open error: {str(e)}"
+        
+        elif action == 'claw_close':
+            # Close claw (grab the leaf)
+            try:
+                arm_num = params.get('arm', 1)
+                channel = ARM_CHANNELS.get(arm_num)
+                if channel is not None:
+                    CLAW_CLOSE_ANGLE = 0  # Adjust based on your servo
+                    kit.servo[channel].angle = CLAW_CLOSE_ANGLE
+                    return f"✓ Arm #{arm_num} claw CLOSED (grabbed leaf)"
+                else:
+                    return f"✗ Invalid arm #{arm_num}"
+            except Exception as e:
+                return f"⚠ Claw close error: {str(e)}"
+        
+        elif action == 'grab_and_drop':
+            # Full sequence: open claw → wait 3s (user places leaf) → close claw → detect → drop to bin
+            try:
+                arm_num = params.get('arm', 1)
+                channel = ARM_CHANNELS.get(arm_num)
+                
+                if channel is None:
+                    return f"✗ Invalid arm #{arm_num}"
+                
+                CLAW_OPEN_ANGLE = 90   # Adjust based on your claw servo
+                CLAW_CLOSE_ANGLE = 0   # Adjust based on your claw servo
+                DROP_ANGLE = 60        # Angle to move arm down to bin
+                HOME_ANGLE = 0         # Home/ready position
+                
+                # Step 1: Open claw (user places Buyo leaf)
+                kit.servo[channel].angle = CLAW_OPEN_ANGLE
+                time.sleep(3.0)  # 3 seconds for user to place leaf
+                
+                # Step 2: Close claw (grab the leaf)
+                kit.servo[channel].angle = CLAW_CLOSE_ANGLE
+                time.sleep(1.0)  # Wait for claw to close completely
+                
+                # Step 3: Camera detection happens on laptop side
+                # (Laptop will send detected class after this command completes)
+                
+                return f"✓ Arm #{arm_num} ready - leaf grabbed, waiting for detection"
+                
+            except Exception as e:
+                return f"⚠ Grab sequence error: {str(e)}"
+        
+        elif action == 'drop_to_bin':
+            # Drop sequence: move down → open claw → return home
+            try:
+                arm_num = params.get('arm', 1)
+                target_class = params.get('class', 'UNKNOWN')
+                channel = ARM_CHANNELS.get(arm_num)
+                
+                if channel is None:
+                    return f"✗ Invalid arm #{arm_num}"
+                
+                CLAW_OPEN_ANGLE = 90
+                DROP_ANGLE = 60
+                HOME_ANGLE = 0
+                
+                # Step 4: Move arm down to bin
+                kit.servo[channel].angle = DROP_ANGLE
+                time.sleep(1.0)
+                
+                # Step 5: Open claw (drop into bin)
+                kit.servo[channel].angle = CLAW_OPEN_ANGLE
+                time.sleep(0.8)
+                
+                # Step 6: Return to home position
+                kit.servo[channel].angle = HOME_ANGLE
+                time.sleep(0.5)
+                
+                return f"✓ Arm #{arm_num} dropped leaf into {target_class} bin"
+                
+            except Exception as e:
+                return f"⚠ Drop sequence error: {str(e)}"
+        
         else:
             return f"⚠ Unknown action: {action}"
     

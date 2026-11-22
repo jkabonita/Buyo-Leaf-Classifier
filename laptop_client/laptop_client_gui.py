@@ -758,18 +758,36 @@ class LaptopClientGUI:
                           padx=10, pady=8, width=14 if span == 1 else 30)
             btn.grid(row=row, column=col, columnspan=span, padx=2, pady=2, sticky='ew')
         
+        # Separator for Claw Controls
+        separator_claw = tk.Label(btn_grid, text="━━━ Claw Operations ━━━",
+                                 font=('Arial', 8), bg='#1e1e1e', fg='#888888')
+        separator_claw.grid(row=7, column=0, columnspan=2, pady=5)
+        
+        # Claw control buttons
+        claw_buttons = [
+            ("✋ Open Claw Arm #1", lambda: self.send_command('claw_open', {'arm': 1}), 8, 0, 1),
+            ("✊ Close Claw Arm #1", lambda: self.send_command('claw_close', {'arm': 1}), 8, 1, 1),
+            ("🤖 Auto Grab & Drop Arm #1", lambda: self.auto_grab_and_drop(), 9, 0, 2),
+        ]
+        
+        for text, cmd, row, col, span in claw_buttons:
+            btn = tk.Button(btn_grid, text=text, command=cmd,
+                          font=('Arial', 9), bg='#8e24aa', fg='white',
+                          padx=10, pady=8, width=14 if span == 1 else 30)
+            btn.grid(row=row, column=col, columnspan=span, padx=2, pady=2, sticky='ew')
+        
         # Separator for Stepper & Servo Controls
         separator2 = tk.Label(btn_grid, text="━━━ Carousel & Camera Controls ━━━",
                              font=('Arial', 8), bg='#1e1e1e', fg='#888888')
-        separator2.grid(row=7, column=0, columnspan=2, pady=5)
+        separator2.grid(row=10, column=0, columnspan=2, pady=5)
         
         # Stepper Motor Controls
         stepper_buttons = [
-            ("⚙️ Rotate to Class A", lambda: self.send_command('rotate', {'class': 'A'}), 8, 0, 1),
-            ("⚙️ Rotate to Class B", lambda: self.send_command('rotate', {'class': 'B'}), 8, 1, 1),
-            ("⚙️ Rotate to Class C", lambda: self.send_command('rotate', {'class': 'C'}), 9, 0, 1),
-            ("⚙️ Rotate to Class D", lambda: self.send_command('rotate', {'class': 'D'}), 9, 1, 1),
-            ("⚙️ Rotate to Class E", lambda: self.send_command('rotate', {'class': 'E'}), 10, 0, 2),
+            ("⚙️ Rotate to Class A", lambda: self.send_command('rotate', {'class': 'A'}), 11, 0, 1),
+            ("⚙️ Rotate to Class B", lambda: self.send_command('rotate', {'class': 'B'}), 11, 1, 1),
+            ("⚙️ Rotate to Class C", lambda: self.send_command('rotate', {'class': 'C'}), 12, 0, 1),
+            ("⚙️ Rotate to Class D", lambda: self.send_command('rotate', {'class': 'D'}), 12, 1, 1),
+            ("⚙️ Rotate to Class E", lambda: self.send_command('rotate', {'class': 'E'}), 13, 0, 2),
         ]
         
         for text, cmd, row, col, span in stepper_buttons:
@@ -780,9 +798,9 @@ class LaptopClientGUI:
         
         # Camera Servo (MG996R) Controls
         servo_buttons = [
-            ("📹 Camera to Arm #1", lambda: self.send_command('camera', {'position': 1}), 11, 0, 1),
-            ("📹 Camera to Arm #2", lambda: self.send_command('camera', {'position': 2}), 11, 1, 1),
-            ("📹 Camera Sweep 9 Arms", lambda: self.send_command('camera_sweep'), 12, 0, 2),
+            ("📹 Camera to Arm #1", lambda: self.send_command('camera', {'position': 1}), 14, 0, 1),
+            ("📹 Camera to Arm #2", lambda: self.send_command('camera', {'position': 2}), 14, 1, 1),
+            ("📹 Camera Sweep 9 Arms", lambda: self.send_command('camera_sweep'), 15, 0, 2),
         ]
         
         for text, cmd, row, col, span in servo_buttons:
@@ -796,14 +814,14 @@ class LaptopClientGUI:
                                        command=lambda: self.send_command('camera_stop'),
                                        font=('Arial', 9, 'bold'), bg='#d32f2f', fg='white',
                                        padx=10, pady=8, width=30)
-        emergency_stop_btn.grid(row=13, column=0, columnspan=2, padx=2, pady=2, sticky='ew')
+        emergency_stop_btn.grid(row=16, column=0, columnspan=2, padx=2, pady=2, sticky='ew')
         
         # Peripheral Detection Button
         peripheral_btn = tk.Button(btn_grid, text="🔌 Detect Peripherals", 
                                    command=self.detect_peripherals,
                                    font=('Arial', 9, 'bold'), bg='#00796b', fg='white',
                                    padx=10, pady=8, width=30)
-        peripheral_btn.grid(row=14, column=0, columnspan=2, padx=2, pady=5, sticky='ew')
+        peripheral_btn.grid(row=17, column=0, columnspan=2, padx=2, pady=5, sticky='ew')
         
         # Cooldown indicator
         self.cooldown_label = tk.Label(control_frame, text="",
@@ -1995,6 +2013,150 @@ class LaptopClientGUI:
                 self.log(f"✗ Peripheral detection error: {str(e)}", 'ERROR')
         
         threading.Thread(target=fetch_peripherals, daemon=True).start()
+    
+    def auto_grab_and_drop(self):
+        """Automatic grab and drop sequence with camera detection"""
+        if not self.connected:
+            self.log("✗ Not connected to Raspberry Pi", 'WARNING')
+            messagebox.showwarning("Not Connected", "This feature requires Raspberry Pi connection")
+            return
+        
+        # Confirm action
+        result = messagebox.askyesno("Start Grab & Drop?",
+                                     "Start automatic grab-and-drop sequence?\n\n"
+                                     "WORKFLOW:\n"
+                                     "1. Claw opens (3 seconds)\n"
+                                     "2. >> USER: Place Buyo leaf in claw <<\n"
+                                     "3. Claw closes (grabs leaf)\n"
+                                     "4. Camera detects leaf class\n"
+                                     "5. Arm moves down to bin\n"
+                                     "6. Claw opens (drops into bin)\n"
+                                     "7. Arm returns home\n\n"
+                                     "Ready to start?")
+        
+        if not result:
+            self.log("Grab-and-drop cancelled by user", 'WARNING')
+            return
+        
+        self.log("🤖 Starting grab-and-drop sequence...", 'SUCCESS')
+        
+        # Create status dialog
+        status_dialog = tk.Toplevel(self.root)
+        status_dialog.title("Grab & Drop Status")
+        status_dialog.geometry("450x300")
+        status_dialog.configure(bg='#2b2b2b')
+        status_dialog.transient(self.root)
+        
+        # Center dialog
+        status_dialog.update_idletasks()
+        x = (status_dialog.winfo_screenwidth() // 2) - 225
+        y = (status_dialog.winfo_screenheight() // 2) - 150
+        status_dialog.geometry(f"450x300+{x}+{y}")
+        
+        # Title
+        tk.Label(status_dialog, text="🤖 Grab & Drop Sequence",
+                font=('Arial', 14, 'bold'), bg='#2b2b2b', fg='#4a90e2').pack(pady=10)
+        
+        # Status label
+        status_label = tk.Label(status_dialog, text="Step 1: Opening claw...",
+                               font=('Arial', 12), bg='#2b2b2b', fg='#ffffff',
+                               wraplength=400, justify=tk.LEFT)
+        status_label.pack(pady=20)
+        
+        # Progress bar
+        progress = ttk.Progressbar(status_dialog, mode='determinate', length=350)
+        progress.pack(pady=10)
+        progress['value'] = 0
+        
+        # Countdown label
+        countdown_label = tk.Label(status_dialog, text="",
+                                   font=('Arial', 10, 'bold'), bg='#2b2b2b', fg='#ffaa00')
+        countdown_label.pack(pady=10)
+        
+        def run_sequence():
+            try:
+                # Step 1: Send grab command (opens claw for 3s, then closes)
+                status_label.config(text="Step 1: Opening claw...\nPlease place Buyo leaf in claw!")
+                countdown_label.config(text="")
+                progress['value'] = 10
+                status_dialog.update()
+                
+                url = f"http://{self.pi_ip.get()}:{self.pi_port.get()}/command"
+                response = requests.post(url, json={'action': 'grab_and_drop', 'params': {'arm': 1}}, timeout=10)
+                
+                # Countdown during claw open (3 seconds)
+                for i in range(3, 0, -1):
+                    countdown_label.config(text=f"⏰ {i} seconds to place leaf...")
+                    status_dialog.update()
+                    time.sleep(1)
+                
+                countdown_label.config(text="")
+                status_label.config(text="Step 2: Closing claw (grabbing leaf)...")
+                progress['value'] = 30
+                status_dialog.update()
+                time.sleep(1.5)
+                
+                # Step 2: Camera detection
+                status_label.config(text="Step 3: Detecting Buyo leaf class...\nPoint camera at the leaf!")
+                progress['value'] = 50
+                status_dialog.update()
+                
+                # Wait for detection (check last_detection)
+                self.log("📷 Waiting for Buyo leaf detection...", 'WARNING')
+                detection_timeout = 10  # 10 seconds timeout
+                start_time = time.time()
+                
+                while (time.time() - start_time) < detection_timeout:
+                    if self.last_detection is not None:
+                        break
+                    time.sleep(0.5)
+                    status_dialog.update()
+                
+                if self.last_detection is None:
+                    raise Exception("No Buyo leaf detected within 10 seconds")
+                
+                detected_class = self.last_detection['class']
+                confidence = self.last_detection['confidence']
+                
+                status_label.config(text=f"Step 4: Detected {detected_class} ({confidence*100:.1f}%)\n"
+                                        f"Moving to bin...")
+                progress['value'] = 70
+                status_dialog.update()
+                self.log(f"✓ Detected: {detected_class} ({confidence*100:.1f}%)", 'SUCCESS')
+                
+                # Step 3: Drop into bin
+                status_label.config(text=f"Step 5: Dropping into {detected_class} bin...")
+                progress['value'] = 85
+                status_dialog.update()
+                
+                response = requests.post(url, json={'action': 'drop_to_bin', 
+                                                    'params': {'arm': 1, 'class': detected_class}}, 
+                                       timeout=10)
+                
+                time.sleep(2.5)  # Wait for drop sequence
+                
+                # Complete
+                status_label.config(text=f"✅ SUCCESS!\nLeaf dropped into {detected_class} bin\n"
+                                        f"Arm returned to home position")
+                progress['value'] = 100
+                countdown_label.config(text="Sequence complete!", fg='#4caf50')
+                status_dialog.update()
+                
+                self.log(f"✅ Grab-and-drop complete: {detected_class}", 'SUCCESS')
+                
+                # Auto close after 3 seconds
+                time.sleep(3)
+                status_dialog.destroy()
+                
+            except Exception as e:
+                status_label.config(text=f"❌ Error: {str(e)}")
+                countdown_label.config(text="Sequence failed", fg='#ff4444')
+                self.log(f"✗ Grab-and-drop error: {str(e)}", 'ERROR')
+                time.sleep(3)
+                status_dialog.destroy()
+        
+        # Run in background thread
+        threading.Thread(target=run_sequence, daemon=True).start()
     
     def show_peripherals_dialog(self, data):
         """Display peripheral detection results in a dialog"""
