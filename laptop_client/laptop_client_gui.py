@@ -31,6 +31,7 @@ import os
 import platform
 import socket
 import json
+from scipy import ndimage
 
 # ============================================================================
 # CONFIGURATION
@@ -207,6 +208,217 @@ GREEN_HUE_MIN = 35  # Minimum hue for green (HSV)
 GREEN_HUE_MAX = 85  # Maximum hue for green (HSV)
 GREEN_SATURATION_MIN = 40  # Minimum saturation
 MIN_GREEN_RATIO = 0.15  # Minimum ratio of green pixels
+
+# ============================================================================
+# ADVANCED LEAF ANALYSIS FUNCTIONS
+# ============================================================================
+
+def analyze_leaf_color(frame):
+    """
+    Analyze leaf color health and detect defects
+    Returns detailed color analysis and defect information
+    """
+    try:
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsv)
+        
+        # Calculate green mask (healthy leaf color)
+        green_mask = cv2.inRange(hsv, 
+                                 np.array([80, 30, 40]),  # Healthy green range
+                                 np.array([140, 80, 80]))
+        
+        green_pixels = np.sum(green_mask > 0)
+        total_pixels = frame.shape[0] * frame.shape[1]
+        green_ratio = (green_pixels / total_pixels) * 100
+        
+        # Calculate color uniformity (lower std = more uniform)
+        std_h = np.std(h)
+        uniformity = max(0, 100 - (std_h / 180 * 100))
+        
+        # Detect yellow spots (chlorosis/aging)
+        yellow_mask = cv2.inRange(hsv, np.array([40, 40, 0]), np.array([70, 255, 255]))
+        yellow_area = (np.sum(yellow_mask > 0) / total_pixels) * 100
+        
+        # Detect brown spots (disease)
+        brown_mask = cv2.inRange(hsv, np.array([15, 30, 0]), np.array([35, 255, 50]))
+        brown_area = (np.sum(brown_mask > 0) / total_pixels) * 100
+        
+        # Detect black spots (severe damage)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        black_mask = cv2.threshold(gray, 20, 255, cv2.THRESH_BINARY_INV)[1]
+        black_area = (np.sum(black_mask > 0) / total_pixels) * 100
+        
+        # Calculate total defects
+        total_defects = yellow_area + brown_area + black_area
+        
+        # Get dominant color
+        mean_color = np.mean(frame.reshape(-1, 3), axis=0)
+        dominant_hex = '#{:02x}{:02x}{:02x}'.format(int(mean_color[2]), int(mean_color[1]), int(mean_color[0]))
+        
+        return {
+            'green_ratio': round(green_ratio, 1),
+            'uniformity': round(uniformity, 1),
+            'yellow_spots': round(yellow_area, 2),
+            'brown_spots': round(brown_area, 2),
+            'black_spots': round(black_area, 2),
+            'total_defects': round(total_defects, 2),
+            'dominant_color': dominant_hex,
+            'mean_hue': int(np.mean(h)),
+            'mean_saturation': int(np.mean(s)),
+            'mean_value': int(np.mean(v))
+        }
+    except Exception as e:
+        print(f"Color analysis error: {e}")
+        return None
+
+def calculate_quality_score(color_analysis, confidence):
+    """
+    Calculate overall quality score based on color analysis and ML confidence
+    Returns score (0-100) and quality grade (A-E)
+    """
+    if color_analysis is None:
+        return 0, 'E'
+    
+    # Color health score (40 points max)
+    color_score = 0
+    if color_analysis['green_ratio'] > 60:
+        color_score += 15
+    elif color_analysis['green_ratio'] > 40:
+        color_score += 10
+    elif color_analysis['green_ratio'] > 20:
+        color_score += 5
+    
+    color_score += min(15, color_analysis['uniformity'] * 0.15)
+    
+    # Hue consistency (10 points)
+    if 80 <= color_analysis['mean_hue'] <= 140:
+        color_score += 10
+    
+    # Defect penalty (35 points max)
+    defect_penalty = color_analysis['total_defects']
+    defect_score = max(0, 35 - (defect_penalty * 1.5))
+    
+    # ML confidence score (25 points max)
+    ml_score = confidence * 25
+    
+    total_score = color_score + defect_score + ml_score
+    
+    # Determine grade
+    if total_score >= 90 and color_analysis['total_defects'] < 2:
+        grade = 'A'
+    elif total_score >= 75 and color_analysis['total_defects'] < 5:
+        grade = 'B'
+    elif total_score >= 50 and color_analysis['total_defects'] < 15:
+        grade = 'C'
+    elif total_score >= 25 and color_analysis['total_defects'] < 30:
+        grade = 'D'
+    else:
+        grade = 'E'
+    
+    return round(total_score, 1), grade
+
+def get_quality_stars(score):
+    """Get star rating based on score"""
+    if score >= 90:
+        return '⭐⭐⭐⭐⭐'
+    elif score >= 75:
+        return '⭐⭐⭐⭐'
+    elif score >= 50:
+        return '⭐⭐⭐'
+    elif score >= 25:
+        return '⭐⭐'
+    else:
+        return '⭐'
+
+def create_analysis_overlay(frame, color_analysis, pred_class, confidence, quality_score, quality_grade):
+    """
+    Create enhanced frame with detailed analysis overlay
+    """
+    annotated = frame.copy()
+    h, w = annotated.shape[:2]
+    
+    # Create semi-transparent info panel (top-right)
+    panel_w = 280
+    panel_h = 220
+    overlay = annotated.copy()
+    cv2.rectangle(overlay, (w-panel_w-10, 10), (w-10, panel_h), (30, 30, 30), -1)
+    cv2.addWeighted(overlay, 0.75, annotated, 0.25, 0, annotated)
+    
+    # Add text information
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    y = 35
+    
+    # Title
+    cv2.putText(annotated, "BUYO LEAF ANALYSIS", (w-panel_w+5, y),
+               font, 0.5, (255, 255, 255), 1)
+    y += 25
+    
+    # Classification
+    cv2.putText(annotated, f"Class: {pred_class}", (w-panel_w+5, y),
+               font, 0.6, (0, 255, 0), 2)
+    y += 20
+    
+    # Quality grade
+    cv2.putText(annotated, f"Quality: Grade {quality_grade}", (w-panel_w+5, y),
+               font, 0.5, (100, 200, 255), 1)
+    y += 18
+    
+    # Stars and score
+    stars = get_quality_stars(quality_score)
+    cv2.putText(annotated, f"{stars} {quality_score:.0f}/100", (w-panel_w+5, y),
+               font, 0.4, (255, 200, 0), 1)
+    y += 20
+    
+    # Separator line
+    cv2.line(annotated, (w-panel_w+5, y), (w-15, y), (100, 100, 100), 1)
+    y += 15
+    
+    # Color analysis
+    if color_analysis:
+        cv2.putText(annotated, f"Green: {color_analysis['green_ratio']:.1f}%", 
+                   (w-panel_w+5, y), font, 0.4, (255, 255, 255), 1)
+        y += 15
+        
+        cv2.putText(annotated, f"Uniformity: {color_analysis['uniformity']:.0f}%", 
+                   (w-panel_w+5, y), font, 0.4, (255, 255, 255), 1)
+        y += 15
+        
+        # Defects section
+        defect_color = (0, 255, 0) if color_analysis['total_defects'] < 5 else (0, 165, 255)
+        if color_analysis['total_defects'] > 15:
+            defect_color = (0, 0, 255)
+        
+        cv2.putText(annotated, f"Defects: {color_analysis['total_defects']:.1f}%", 
+                   (w-panel_w+5, y), font, 0.4, defect_color, 1)
+        y += 13
+        
+        # Individual defects (if significant)
+        if color_analysis['yellow_spots'] > 1:
+            cv2.putText(annotated, f"  Yellow: {color_analysis['yellow_spots']:.1f}%", 
+                       (w-panel_w+5, y), font, 0.3, (0, 255, 255), 1)
+            y += 12
+        
+        if color_analysis['brown_spots'] > 1:
+            cv2.putText(annotated, f"  Brown: {color_analysis['brown_spots']:.1f}%", 
+                       (w-panel_w+5, y), font, 0.3, (50, 150, 255), 1)
+            y += 12
+        
+        if color_analysis['black_spots'] > 0.5:
+            cv2.putText(annotated, f"  Black: {color_analysis['black_spots']:.1f}%", 
+                       (w-panel_w+5, y), font, 0.3, (150, 150, 255), 1)
+            y += 12
+        
+        y += 5
+        
+        # Dominant color swatch
+        cv2.rectangle(annotated, (w-panel_w+5, y), (w-panel_w+35, y+15), 
+                     (int(color_analysis['mean_value']*2.5), 
+                      int(color_analysis['mean_saturation']*2.5),
+                      int(color_analysis['mean_hue']*1.5)), -1)
+        cv2.putText(annotated, color_analysis['dominant_color'], 
+                   (w-panel_w+40, y+12), font, 0.3, (255, 255, 255), 1)
+    
+    return annotated
 
 # ============================================================================
 # ML MODEL LOADING
@@ -421,38 +633,35 @@ def detect_target(frame):
         # Check if confident enough for positive detection
         detected = confidence >= DETECTION_THRESHOLD
         
-        # Annotate frame
+        # Annotate frame with ADVANCED ANALYSIS
         annotated = frame.copy()
         h, w = frame.shape[:2]
         
         # Only show detection info if it's likely a Buyo leaf
         if is_buyo:
-            # Color coding based on confidence
-            if confidence >= DETECTION_THRESHOLD:
-                color = (0, 255, 0)  # Green - High confidence
-                status = "🍃 BUYO DETECTED"
-            elif confidence >= BUYO_CONFIDENCE_MIN:
-                color = (0, 165, 255)  # Orange - Medium confidence
-                status = "🍃 BUYO LEAF"
-            else:
-                color = (100, 100, 255)  # Red - Low confidence
-                status = "SCANNING"
+            # Perform advanced color and defect analysis
+            color_analysis = analyze_leaf_color(frame)
+            quality_score, quality_grade = calculate_quality_score(color_analysis, confidence)
             
-            # Draw detection box
-            padding = 20
-            cv2.rectangle(annotated, (padding, padding), (w-padding, h-padding), color, 3)
+            # Create enhanced overlay with detailed analysis
+            annotated = create_analysis_overlay(frame, color_analysis, pred_class, 
+                                               confidence, quality_score, quality_grade)
             
-            # Main class label (large, center)
+            # Add main class label (center, large)
             class_text = f"{pred_class}"
-            conf_text = f"{confidence*100:.1f}%"
-            
-            # Get text size for background
             (class_w, class_h), _ = cv2.getTextSize(class_text, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 3)
-            (conf_w, conf_h), _ = cv2.getTextSize(conf_text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
             
             # Center position
             center_x = w // 2
             center_y = h // 2
+            
+            # Color coding based on confidence
+            if confidence >= DETECTION_THRESHOLD:
+                color = (0, 255, 0)  # Green - High confidence
+            elif confidence >= BUYO_CONFIDENCE_MIN:
+                color = (0, 165, 255)  # Orange - Medium confidence
+            else:
+                color = (100, 100, 255)  # Red - Low confidence
             
             # Draw background for class
             cv2.rectangle(annotated, 
@@ -468,46 +677,6 @@ def detect_target(frame):
             cv2.putText(annotated, class_text, 
                        (center_x - class_w//2, center_y - 25),
                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 3)
-            
-            # Draw background for confidence
-            cv2.rectangle(annotated,
-                         (center_x - conf_w//2 - 10, center_y + 10),
-                         (center_x + conf_w//2 + 10, center_y + 50),
-                         (0, 0, 0), -1)
-            
-            # Draw confidence text
-            cv2.putText(annotated, conf_text,
-                       (center_x - conf_w//2, center_y + 40),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
-            
-            # Status at top
-            cv2.putText(annotated, status, (10, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-            
-            # Draw probability bars (compact, top-right corner)
-            bar_x = w - 220
-            bar_y = 50
-            bar_height = 15
-            
-            for i, cls in enumerate(CLASS_NAMES):
-                prob = probs[i]
-                bar_w = int(150 * prob)
-                
-                # Background bar
-                cv2.rectangle(annotated, (bar_x, bar_y + i*20), 
-                            (bar_x + 150, bar_y + i*20 + bar_height),
-                            (50, 50, 50), -1)
-                
-                # Probability bar
-                bar_color = color if i == pred_idx else (100, 100, 100)
-                cv2.rectangle(annotated, (bar_x, bar_y + i*20), 
-                            (bar_x + bar_w, bar_y + i*20 + bar_height),
-                            bar_color, -1)
-                
-                # Class label
-                cv2.putText(annotated, f"{cls}: {prob*100:.0f}%", 
-                           (bar_x + 155, bar_y + i*20 + 12),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
         else:
             # Not a Buyo leaf or very low confidence
             cv2.putText(annotated, "🔍 SCANNING...", (10, 30),
