@@ -202,10 +202,21 @@ DETECTION_THRESHOLD = 0.40  # Lowered to catch more detections
 BUYO_CONFIDENCE_MIN = 0.20  # Very low threshold to see all predictions
 AUTO_DETECTION = True  # Always run detection automatically
 
+# Detection stabilization settings
+DETECTION_STABILIZATION = True  # Enable stable detection
+STABILIZATION_FRAMES = 5  # Number of consistent frames needed
+STABILIZATION_THRESHOLD = 0.6  # 60% of frames must agree on same class
+DETECTION_HOLD_TIME = 2.0  # Hold detection for 2 seconds before changing
+
+# Detection history for stabilization
+detection_history = []
+last_stable_detection = None
+last_detection_time = 0
+
 # Additional filters for Buyo leaf detection
-USE_COLOR_FILTER = False  # DISABLED - model needs retraining, filter hiding valid detections
-GREEN_HUE_MIN = 35  # Minimum hue for green (HSV)
-GREEN_HUE_MAX = 85  # Maximum hue for green (HSV)
+USE_COLOR_FILTER = True  # ENABLED - prevents detecting humans/non-leaves
+GREEN_HUE_MIN = 35  # Minimum hue for green (HSV) — matches Buyo leaf hue
+GREEN_HUE_MAX = 90  # Maximum hue for green (HSV)
 GREEN_SATURATION_MIN = 40  # Minimum saturation
 MIN_GREEN_RATIO = 0.15  # Minimum ratio of green pixels
 
@@ -215,57 +226,105 @@ MIN_GREEN_RATIO = 0.15  # Minimum ratio of green pixels
 
 def analyze_leaf_color(frame):
     """
-    Analyze leaf color health and detect defects
-    Returns detailed color analysis and defect information
+    Analyze leaf color health and detect defects.
+    Defects are defined as uneven discoloration: yellow patches (chlorosis/aging)
+    and brown patches (disease/necrosis) on the leaf surface.
+    Returns detailed color analysis and defect information.
     """
     try:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
-        
-        # Calculate green mask (healthy leaf color)
-        green_mask = cv2.inRange(hsv, 
-                                 np.array([80, 30, 40]),  # Healthy green range
-                                 np.array([140, 80, 80]))
-        
-        green_pixels = np.sum(green_mask > 0)
         total_pixels = frame.shape[0] * frame.shape[1]
+
+        # ── Healthy green leaf detection ────────────────────────────────────────
+        # Buyo (betel) leaves: deep green, Hue 35-90, good saturation & brightness
+        green_mask = cv2.inRange(hsv,
+                                 np.array([35, 40, 40]),
+                                 np.array([90, 255, 200]))
+        green_pixels = np.sum(green_mask > 0)
         green_ratio = (green_pixels / total_pixels) * 100
-        
-        # Calculate color uniformity (lower std = more uniform)
-        std_h = np.std(h)
-        uniformity = max(0, 100 - (std_h / 180 * 100))
-        
-        # Detect yellow spots (chlorosis/aging)
-        yellow_mask = cv2.inRange(hsv, np.array([40, 40, 0]), np.array([70, 255, 255]))
+
+        # ── Color uniformity (low std-dev in Hue = uniform = healthy) ──────────
+        # Only measure hue std over leaf pixels (non-black)
+        leaf_mask = cv2.inRange(hsv, np.array([0, 20, 30]), np.array([180, 255, 255]))
+        leaf_hues = h[leaf_mask > 0]
+        std_h = float(np.std(leaf_hues)) if len(leaf_hues) > 0 else 180.0
+        # Normalize: 0° std → 100% uniform, 90°+ std → 0% uniform
+        uniformity = max(0.0, 100.0 - (std_h / 90.0 * 100.0))
+
+        # ── DEFECT: Yellow patches (chlorosis, aging, nutrient deficiency) ──────
+        # HSV: Hue 15-35 (yellow-green to yellow), decent saturation, not too dark
+        yellow_mask = cv2.inRange(hsv,
+                                  np.array([15, 60, 80]),
+                                  np.array([35, 255, 255]))
+        # Morphological cleanup: remove noise, keep actual patches
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, kernel)
+        yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, kernel)
         yellow_area = (np.sum(yellow_mask > 0) / total_pixels) * 100
-        
-        # Detect brown spots (disease)
-        brown_mask = cv2.inRange(hsv, np.array([15, 30, 0]), np.array([35, 255, 50]))
+
+        # ── DEFECT: Brown patches (disease, necrosis, sun-scorch) ───────────────
+        # HSV: Hue 5-18 (orange-brown), moderate-high saturation, medium value
+        brown_mask = cv2.inRange(hsv,
+                                 np.array([5, 50, 40]),
+                                 np.array([18, 255, 180]))
+        brown_mask = cv2.morphologyEx(brown_mask, cv2.MORPH_OPEN, kernel)
+        brown_mask = cv2.morphologyEx(brown_mask, cv2.MORPH_DILATE, kernel)
         brown_area = (np.sum(brown_mask > 0) / total_pixels) * 100
-        
-        # Detect black spots (severe damage)
+
+        # ── DEFECT: Black/dark spots (severe necrosis, fungal) ─────────────────
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        black_mask = cv2.threshold(gray, 20, 255, cv2.THRESH_BINARY_INV)[1]
+        # Only count dark pixels that are also within a leaf (not background)
+        _, black_thresh = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY_INV)
+        black_mask = cv2.bitwise_and(black_thresh, leaf_mask)
+        black_mask = cv2.morphologyEx(black_mask, cv2.MORPH_OPEN, kernel)
         black_area = (np.sum(black_mask > 0) / total_pixels) * 100
-        
-        # Calculate total defects
-        total_defects = yellow_area + brown_area + black_area
-        
-        # Get dominant color
+
+        # ── Composite defect score ───────────────────────────────────────────────
+        # Weight yellow/brown heavier than black (more diagnostically relevant)
+        total_defects = (yellow_area * 1.2) + (brown_area * 1.2) + (black_area * 0.6)
+
+        # ── Defect severity classification ──────────────────────────────────────
+        if total_defects < 2.0:
+            defect_status = 'NONE'
+        elif total_defects < 8.0:
+            defect_status = 'MILD'
+        elif total_defects < 20.0:
+            defect_status = 'MODERATE'
+        else:
+            defect_status = 'SEVERE'
+
+        # Dominant types (for labeling)
+        defect_types = []
+        if yellow_area >= 1.5:
+            defect_types.append('Yellow')
+        if brown_area >= 1.5:
+            defect_types.append('Brown')
+        if black_area >= 1.0:
+            defect_types.append('Dark')
+
+        # ── Dominant color hex ───────────────────────────────────────────────────
         mean_color = np.mean(frame.reshape(-1, 3), axis=0)
-        dominant_hex = '#{:02x}{:02x}{:02x}'.format(int(mean_color[2]), int(mean_color[1]), int(mean_color[0]))
-        
+        dominant_hex = '#{:02x}{:02x}{:02x}'.format(
+            int(mean_color[2]), int(mean_color[1]), int(mean_color[0]))
+
         return {
-            'green_ratio': round(green_ratio, 1),
-            'uniformity': round(uniformity, 1),
-            'yellow_spots': round(yellow_area, 2),
-            'brown_spots': round(brown_area, 2),
-            'black_spots': round(black_area, 2),
-            'total_defects': round(total_defects, 2),
+            'green_ratio':    round(green_ratio, 1),
+            'uniformity':     round(uniformity, 1),
+            'yellow_spots':   round(yellow_area, 2),
+            'brown_spots':    round(brown_area, 2),
+            'black_spots':    round(black_area, 2),
+            'total_defects':  round(total_defects, 2),
+            'defect_status':  defect_status,        # 'NONE' | 'MILD' | 'MODERATE' | 'SEVERE'
+            'defect_types':   defect_types,          # list of dominant defect color names
             'dominant_color': dominant_hex,
-            'mean_hue': int(np.mean(h)),
-            'mean_saturation': int(np.mean(s)),
-            'mean_value': int(np.mean(v))
+            'mean_hue':       int(np.mean(h)),
+            'mean_saturation':int(np.mean(s)),
+            'mean_value':     int(np.mean(v)),
+            # Pass masks so overlay can highlight them on the frame
+            '_yellow_mask':   yellow_mask,
+            '_brown_mask':    brown_mask,
+            '_black_mask':    black_mask,
         }
     except Exception as e:
         print(f"Color analysis error: {e}")
@@ -273,48 +332,56 @@ def analyze_leaf_color(frame):
 
 def calculate_quality_score(color_analysis, confidence):
     """
-    Calculate overall quality score based on color analysis and ML confidence
-    Returns score (0-100) and quality grade (A-E)
+    Calculate overall quality score based on color analysis and ML confidence.
+    Defects (yellow/brown uneven coloration) reduce the score significantly.
+    Returns score (0-100) and quality grade (A-E).
     """
     if color_analysis is None:
         return 0, 'E'
-    
-    # Color health score (40 points max)
+
+    # ── Color health score (40 points max) ──────────────────────────────────
     color_score = 0
-    if color_analysis['green_ratio'] > 60:
+    if color_analysis['green_ratio'] > 50:
         color_score += 15
-    elif color_analysis['green_ratio'] > 40:
+    elif color_analysis['green_ratio'] > 30:
         color_score += 10
-    elif color_analysis['green_ratio'] > 20:
+    elif color_analysis['green_ratio'] > 10:
         color_score += 5
-    
+
+    # Uniformity bonus (healthy leaves are uniform green, not patchy)
     color_score += min(15, color_analysis['uniformity'] * 0.15)
-    
-    # Hue consistency (10 points)
-    if 80 <= color_analysis['mean_hue'] <= 140:
+
+    # Hue consistency for Buyo: healthy hue ~ 35–90 in HSV
+    if 35 <= color_analysis['mean_hue'] <= 90:
         color_score += 10
-    
-    # Defect penalty (35 points max)
-    defect_penalty = color_analysis['total_defects']
-    defect_score = max(0, 35 - (defect_penalty * 1.5))
-    
-    # ML confidence score (25 points max)
-    ml_score = confidence * 25
-    
+
+    # ── Defect penalty (40 points max) ──────────────────────────────────────
+    # Yellow/brown patches are the primary defect indicator
+    yellow = color_analysis.get('yellow_spots', 0)
+    brown  = color_analysis.get('brown_spots', 0)
+    black  = color_analysis.get('black_spots', 0)
+    # Weighted defect score (yellow & brown penalised harder)
+    weighted_defects = (yellow * 1.5) + (brown * 1.5) + (black * 0.5)
+    defect_score = max(0, 40 - (weighted_defects * 2.0))
+
+    # ── ML confidence score (20 points max) ─────────────────────────────────
+    ml_score = confidence * 20
+
     total_score = color_score + defect_score + ml_score
-    
-    # Determine grade
-    if total_score >= 90 and color_analysis['total_defects'] < 2:
+
+    # ── Grade thresholds ─────────────────────────────────────────────────────
+    defect_status = color_analysis.get('defect_status', 'NONE')
+    if   total_score >= 85 and defect_status == 'NONE':
         grade = 'A'
-    elif total_score >= 75 and color_analysis['total_defects'] < 5:
+    elif total_score >= 70 and defect_status in ('NONE', 'MILD'):
         grade = 'B'
-    elif total_score >= 50 and color_analysis['total_defects'] < 15:
+    elif total_score >= 50 and defect_status in ('NONE', 'MILD', 'MODERATE'):
         grade = 'C'
-    elif total_score >= 25 and color_analysis['total_defects'] < 30:
+    elif total_score >= 25:
         grade = 'D'
     else:
         grade = 'E'
-    
+
     return round(total_score, 1), grade
 
 def get_quality_stars(score):
@@ -332,93 +399,199 @@ def get_quality_stars(score):
 
 def create_analysis_overlay(frame, color_analysis, pred_class, confidence, quality_score, quality_grade):
     """
-    Create enhanced frame with detailed analysis overlay
+    Create enhanced frame with detailed analysis overlay.
+    Highlights yellow/brown defect regions directly on the leaf image.
     """
     annotated = frame.copy()
     h, w = annotated.shape[:2]
-    
-    # Create semi-transparent info panel (top-right)
-    panel_w = 280
-    panel_h = 220
+
+    # ── Draw defect region highlights ──────────────────────────────────────────
+    if color_analysis:
+        # Yellow defect overlay (semi-transparent cyan outline)
+        ym = color_analysis.get('_yellow_mask')
+        if ym is not None and color_analysis['yellow_spots'] >= 1.5:
+            highlight = np.zeros_like(annotated)
+            highlight[ym > 0] = (0, 230, 230)   # Cyan tint for yellow defects
+            cv2.addWeighted(annotated, 1.0, highlight, 0.45, 0, annotated)
+            # Contours for yellow patches
+            contours, _ = cv2.findContours(ym, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(annotated, contours, -1, (0, 220, 220), 2)
+
+        # Brown defect overlay (semi-transparent orange outline)
+        bm = color_analysis.get('_brown_mask')
+        if bm is not None and color_analysis['brown_spots'] >= 1.5:
+            highlight = np.zeros_like(annotated)
+            highlight[bm > 0] = (30, 100, 220)  # Orange-red tint for brown defects
+            cv2.addWeighted(annotated, 1.0, highlight, 0.45, 0, annotated)
+            contours, _ = cv2.findContours(bm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(annotated, contours, -1, (30, 100, 220), 2)
+
+        # Black/dark spot overlay (semi-transparent magenta)
+        km = color_analysis.get('_black_mask')
+        if km is not None and color_analysis['black_spots'] >= 1.0:
+            highlight = np.zeros_like(annotated)
+            highlight[km > 0] = (200, 50, 200)
+            cv2.addWeighted(annotated, 1.0, highlight, 0.35, 0, annotated)
+
+    # ── Info panel (top-right, semi-transparent) ───────────────────────────────
+    panel_w = 290
+    panel_h = 230
     overlay = annotated.copy()
-    cv2.rectangle(overlay, (w-panel_w-10, 10), (w-10, panel_h), (30, 30, 30), -1)
-    cv2.addWeighted(overlay, 0.75, annotated, 0.25, 0, annotated)
-    
-    # Add text information
+    cv2.rectangle(overlay, (w - panel_w - 10, 10), (w - 10, panel_h), (20, 20, 20), -1)
+    cv2.addWeighted(overlay, 0.72, annotated, 0.28, 0, annotated)
+
     font = cv2.FONT_HERSHEY_SIMPLEX
     y = 35
-    
-    # Title
-    cv2.putText(annotated, "BUYO LEAF ANALYSIS", (w-panel_w+5, y),
-               font, 0.5, (255, 255, 255), 1)
+
+    cv2.putText(annotated, "BUYO LEAF ANALYSIS", (w - panel_w + 5, y),
+                font, 0.5, (255, 255, 255), 1)
     y += 25
-    
-    # Classification
-    cv2.putText(annotated, f"Class: {pred_class}", (w-panel_w+5, y),
-               font, 0.6, (0, 255, 0), 2)
+
+    cv2.putText(annotated, f"Class: {pred_class}", (w - panel_w + 5, y),
+                font, 0.6, (0, 255, 0), 2)
+    y += 22
+
+    cv2.putText(annotated, f"Quality: Grade {quality_grade}", (w - panel_w + 5, y),
+                font, 0.5, (100, 200, 255), 1)
     y += 20
-    
-    # Quality grade
-    cv2.putText(annotated, f"Quality: Grade {quality_grade}", (w-panel_w+5, y),
-               font, 0.5, (100, 200, 255), 1)
-    y += 18
-    
-    # Stars and score
+
     stars = get_quality_stars(quality_score)
-    cv2.putText(annotated, f"{stars} {quality_score:.0f}/100", (w-panel_w+5, y),
-               font, 0.4, (255, 200, 0), 1)
+    cv2.putText(annotated, f"{stars} {quality_score:.0f}/100", (w - panel_w + 5, y),
+                font, 0.4, (255, 200, 0), 1)
     y += 20
-    
-    # Separator line
-    cv2.line(annotated, (w-panel_w+5, y), (w-15, y), (100, 100, 100), 1)
+
+    cv2.line(annotated, (w - panel_w + 5, y), (w - 15, y), (80, 80, 80), 1)
     y += 15
-    
-    # Color analysis
+
     if color_analysis:
-        cv2.putText(annotated, f"Green: {color_analysis['green_ratio']:.1f}%", 
-                   (w-panel_w+5, y), font, 0.4, (255, 255, 255), 1)
+        cv2.putText(annotated, f"Green: {color_analysis['green_ratio']:.1f}%",
+                    (w - panel_w + 5, y), font, 0.4, (200, 255, 200), 1)
         y += 15
-        
-        cv2.putText(annotated, f"Uniformity: {color_analysis['uniformity']:.0f}%", 
-                   (w-panel_w+5, y), font, 0.4, (255, 255, 255), 1)
+
+        cv2.putText(annotated, f"Uniformity: {color_analysis['uniformity']:.0f}%",
+                    (w - panel_w + 5, y), font, 0.4, (200, 255, 200), 1)
         y += 15
-        
-        # Defects section
-        defect_color = (0, 255, 0) if color_analysis['total_defects'] < 5 else (0, 165, 255)
-        if color_analysis['total_defects'] > 15:
-            defect_color = (0, 0, 255)
-        
-        cv2.putText(annotated, f"Defects: {color_analysis['total_defects']:.1f}%", 
-                   (w-panel_w+5, y), font, 0.4, defect_color, 1)
-        y += 13
-        
-        # Individual defects (if significant)
-        if color_analysis['yellow_spots'] > 1:
-            cv2.putText(annotated, f"  Yellow: {color_analysis['yellow_spots']:.1f}%", 
-                       (w-panel_w+5, y), font, 0.3, (0, 255, 255), 1)
-            y += 12
-        
-        if color_analysis['brown_spots'] > 1:
-            cv2.putText(annotated, f"  Brown: {color_analysis['brown_spots']:.1f}%", 
-                       (w-panel_w+5, y), font, 0.3, (50, 150, 255), 1)
-            y += 12
-        
-        if color_analysis['black_spots'] > 0.5:
-            cv2.putText(annotated, f"  Black: {color_analysis['black_spots']:.1f}%", 
-                       (w-panel_w+5, y), font, 0.3, (150, 150, 255), 1)
-            y += 12
-        
-        y += 5
-        
+
+        # Defect line — color by severity
+        status = color_analysis.get('defect_status', 'NONE')
+        status_colors = {
+            'NONE':     (0, 220, 0),
+            'MILD':     (0, 200, 255),
+            'MODERATE': (0, 140, 255),
+            'SEVERE':   (0, 0, 255),
+        }
+        defect_color = status_colors.get(status, (200, 200, 200))
+        cv2.putText(annotated, f"Defects: {color_analysis['total_defects']:.1f}% [{status}]",
+                    (w - panel_w + 5, y), font, 0.4, defect_color, 1)
+        y += 14
+
+        if color_analysis['yellow_spots'] >= 1.5:
+            cv2.putText(annotated, f"  Yellow: {color_analysis['yellow_spots']:.1f}%",
+                        (w - panel_w + 5, y), font, 0.35, (0, 230, 230), 1)
+            y += 13
+
+        if color_analysis['brown_spots'] >= 1.5:
+            cv2.putText(annotated, f"  Brown:  {color_analysis['brown_spots']:.1f}%",
+                        (w - panel_w + 5, y), font, 0.35, (30, 130, 255), 1)
+            y += 13
+
+        if color_analysis['black_spots'] >= 1.0:
+            cv2.putText(annotated, f"  Dark:   {color_analysis['black_spots']:.1f}%",
+                        (w - panel_w + 5, y), font, 0.35, (180, 100, 255), 1)
+            y += 13
+
         # Dominant color swatch
-        cv2.rectangle(annotated, (w-panel_w+5, y), (w-panel_w+35, y+15), 
-                     (int(color_analysis['mean_value']*2.5), 
-                      int(color_analysis['mean_saturation']*2.5),
-                      int(color_analysis['mean_hue']*1.5)), -1)
-        cv2.putText(annotated, color_analysis['dominant_color'], 
-                   (w-panel_w+40, y+12), font, 0.3, (255, 255, 255), 1)
-    
+        y += 3
+        cv2.rectangle(annotated, (w - panel_w + 5, y), (w - panel_w + 35, y + 14),
+                      (int(np.clip(color_analysis['mean_value']   * 2.5, 0, 255)),
+                       int(np.clip(color_analysis['mean_saturation'] * 2.5, 0, 255)),
+                       int(np.clip(color_analysis['mean_hue'] * 1.5, 0, 255))), -1)
+        cv2.putText(annotated, color_analysis['dominant_color'],
+                    (w - panel_w + 40, y + 11), font, 0.3, (255, 255, 255), 1)
+
+    # ── DEFECT ALERT BANNER (bottom of frame) ──────────────────────────────────
+    if color_analysis:
+        status = color_analysis.get('defect_status', 'NONE')
+        defect_types = color_analysis.get('defect_types', [])
+
+        if status in ('MODERATE', 'SEVERE'):
+            # Bold red/orange alert bar at bottom
+            banner_bg = (0, 0, 180) if status == 'SEVERE' else (0, 100, 200)
+            cv2.rectangle(annotated, (0, h - 42), (w, h), banner_bg, -1)
+            label = f"⚠ DEFECT DETECTED: {', '.join(defect_types)} discoloration ({status})"
+            cv2.putText(annotated, label, (10, h - 14),
+                        font, 0.6, (255, 255, 255), 2)
+        elif status == 'MILD':
+            cv2.rectangle(annotated, (0, h - 32), (w, h), (0, 130, 180), -1)
+            label = f"! Mild defect: {', '.join(defect_types) if defect_types else 'minor discoloration'}"
+            cv2.putText(annotated, label, (10, h - 10),
+                        font, 0.5, (255, 255, 255), 1)
+        else:
+            cv2.rectangle(annotated, (0, h - 28), (w, h), (0, 100, 0), -1)
+            cv2.putText(annotated, "✓ No defects detected — Leaf color uniform",
+                        (10, h - 8), font, 0.5, (200, 255, 200), 1)
+
     return annotated
+
+def stabilize_detection(pred_class, confidence):
+    """
+    Stabilize detection by requiring consistent results over multiple frames
+    Returns stable class and confidence, or None if not stable yet
+    """
+    global detection_history, last_stable_detection, last_detection_time
+    
+    if not DETECTION_STABILIZATION:
+        return pred_class, confidence
+    
+    current_time = time.time()
+    
+    # Add current detection to history
+    detection_history.append({'class': pred_class, 'confidence': confidence, 'time': current_time})
+    
+    # Keep only recent detections (last STABILIZATION_FRAMES)
+    if len(detection_history) > STABILIZATION_FRAMES:
+        detection_history.pop(0)
+    
+    # If we have a stable detection and hold time hasn't expired, keep showing it
+    if last_stable_detection is not None:
+        time_since_last = current_time - last_detection_time
+        if time_since_last < DETECTION_HOLD_TIME:
+            # Still within hold time, return last stable detection
+            return last_stable_detection['class'], last_stable_detection['confidence']
+    
+    # Check if we have enough frames to evaluate
+    if len(detection_history) < STABILIZATION_FRAMES:
+        # Not enough data yet
+        if last_stable_detection is not None:
+            return last_stable_detection['class'], last_stable_detection['confidence']
+        return None, 0.0
+    
+    # Count class occurrences
+    class_counts = {}
+    total_confidence = {}
+    for det in detection_history:
+        cls = det['class']
+        conf = det['confidence']
+        class_counts[cls] = class_counts.get(cls, 0) + 1
+        total_confidence[cls] = total_confidence.get(cls, 0) + conf
+    
+    # Find most common class
+    most_common_class = max(class_counts, key=class_counts.get)
+    occurrence_ratio = class_counts[most_common_class] / len(detection_history)
+    
+    # Check if it meets stability threshold
+    if occurrence_ratio >= STABILIZATION_THRESHOLD:
+        # Stable detection found
+        avg_confidence = total_confidence[most_common_class] / class_counts[most_common_class]
+        last_stable_detection = {'class': most_common_class, 'confidence': avg_confidence}
+        last_detection_time = current_time
+        return most_common_class, avg_confidence
+    
+    # Not stable yet, return last stable detection if available
+    if last_stable_detection is not None:
+        return last_stable_detection['class'], last_stable_detection['confidence']
+    
+    return None, 0.0
 
 # ============================================================================
 # ML MODEL LOADING
@@ -627,62 +800,38 @@ def detect_target(frame):
         confidence = float(probs[pred_idx])
         pred_class = CLASS_NAMES[pred_idx]
         
+        # Apply detection stabilization to reduce blinking
+        stable_class, stable_confidence = stabilize_detection(pred_class, confidence)
+        
+        # Use stabilized values if available, otherwise use raw predictions
+        if stable_class is not None:
+            pred_class = stable_class
+            confidence = stable_confidence
+            # Update pred_idx to match stabilized class
+            pred_idx = CLASS_NAMES.index(pred_class) if pred_class in CLASS_NAMES else pred_idx
+        
         # Check if this is a Buyo leaf (confidence above minimum threshold)
         is_buyo = confidence >= BUYO_CONFIDENCE_MIN
         
         # Check if confident enough for positive detection
         detected = confidence >= DETECTION_THRESHOLD
         
-        # Annotate frame with ADVANCED ANALYSIS
+        # Annotate frame - MINIMAL overlay only (no analysis overlay)
         annotated = frame.copy()
         h, w = frame.shape[:2]
         
-        # Only show detection info if it's likely a Buyo leaf
+        # Perform color analysis regardless (for info panel)
+        color_analysis = None
+        quality_score = 0
+        quality_grade = 'E'
         if is_buyo:
-            # Perform advanced color and defect analysis
             color_analysis = analyze_leaf_color(frame)
             quality_score, quality_grade = calculate_quality_score(color_analysis, confidence)
-            
-            # Create enhanced overlay with detailed analysis
-            annotated = create_analysis_overlay(frame, color_analysis, pred_class, 
-                                               confidence, quality_score, quality_grade)
-            
-            # Add main class label (center, large)
-            class_text = f"{pred_class}"
-            (class_w, class_h), _ = cv2.getTextSize(class_text, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 3)
-            
-            # Center position
-            center_x = w // 2
-            center_y = h // 2
-            
-            # Color coding based on confidence
-            if confidence >= DETECTION_THRESHOLD:
-                color = (0, 255, 0)  # Green - High confidence
-            elif confidence >= BUYO_CONFIDENCE_MIN:
-                color = (0, 165, 255)  # Orange - Medium confidence
-            else:
-                color = (100, 100, 255)  # Red - Low confidence
-            
-            # Draw background for class
-            cv2.rectangle(annotated, 
-                         (center_x - class_w//2 - 10, center_y - 60),
-                         (center_x + class_w//2 + 10, center_y - 10),
-                         (0, 0, 0), -1)
-            cv2.rectangle(annotated, 
-                         (center_x - class_w//2 - 10, center_y - 60),
-                         (center_x + class_w//2 + 10, center_y - 10),
-                         color, 3)
-            
-            # Draw class text
-            cv2.putText(annotated, class_text, 
-                       (center_x - class_w//2, center_y - 25),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 3)
-        else:
-            # Not a Buyo leaf or very low confidence
-            cv2.putText(annotated, "🔍 SCANNING...", (10, 30),
+        
+        # Only show simple scanning indicator if not a Buyo leaf
+        if not is_buyo:
+            cv2.putText(annotated, "SCANNING...", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (150, 150, 150), 2)
-            cv2.putText(annotated, "No Buyo Leaf Detected", (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 2)
         
         return {
             'detected': detected,
@@ -692,7 +841,10 @@ def detect_target(frame):
             'confidence': confidence,
             'probabilities': probs.tolist(),
             'bbox': None,
-            'annotated_frame': annotated
+            'annotated_frame': annotated,
+            'color_analysis': color_analysis,
+            'quality_score': quality_score,
+            'quality_grade': quality_grade
         }
         
     except Exception as e:
@@ -866,6 +1018,62 @@ class LaptopClientGUI:
         self.video_label = tk.Label(video_frame, bg='#000000',
                                     width=VIDEO_WIDTH, height=VIDEO_HEIGHT)
         self.video_label.pack(padx=5, pady=5)
+        
+        # Detection Info Panel (below video)
+        detection_info_frame = tk.LabelFrame(video_frame, text="🎯 Real-Time Detection Info",
+                                            font=('Arial', 10, 'bold'),
+                                            bg='#1a1a1a', fg='#ffffff')
+        detection_info_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Create grid for detection info
+        info_grid = tk.Frame(detection_info_frame, bg='#1a1a1a')
+        info_grid.pack(padx=10, pady=10)
+        
+        # Row 1: Class and Confidence
+        tk.Label(info_grid, text="Classification:", font=('Arial', 9, 'bold'),
+                bg='#1a1a1a', fg='#888888').grid(row=0, column=0, sticky='w', padx=5, pady=2)
+        self.info_class = tk.Label(info_grid, text="--", font=('Arial', 11, 'bold'),
+                                  bg='#1a1a1a', fg='#00ff00')
+        self.info_class.grid(row=0, column=1, sticky='w', padx=5, pady=2)
+        
+        tk.Label(info_grid, text="Confidence:", font=('Arial', 9, 'bold'),
+                bg='#1a1a1a', fg='#888888').grid(row=0, column=2, sticky='w', padx=15, pady=2)
+        self.info_confidence = tk.Label(info_grid, text="--", font=('Arial', 11, 'bold'),
+                                       bg='#1a1a1a', fg='#00ff00')
+        self.info_confidence.grid(row=0, column=3, sticky='w', padx=5, pady=2)
+        
+        # Row 2: Quality and Grade
+        tk.Label(info_grid, text="Quality Score:", font=('Arial', 9, 'bold'),
+                bg='#1a1a1a', fg='#888888').grid(row=1, column=0, sticky='w', padx=5, pady=2)
+        self.info_quality = tk.Label(info_grid, text="--", font=('Arial', 11, 'bold'),
+                                    bg='#1a1a1a', fg='#ffaa00')
+        self.info_quality.grid(row=1, column=1, sticky='w', padx=5, pady=2)
+        
+        tk.Label(info_grid, text="Grade:", font=('Arial', 9, 'bold'),
+                bg='#1a1a1a', fg='#888888').grid(row=1, column=2, sticky='w', padx=15, pady=2)
+        self.info_grade = tk.Label(info_grid, text="--", font=('Arial', 11, 'bold'),
+                                  bg='#1a1a1a', fg='#ffaa00')
+        self.info_grade.grid(row=1, column=3, sticky='w', padx=5, pady=2)
+        
+        # Row 3: Color Analysis
+        tk.Label(info_grid, text="Green Content:", font=('Arial', 9, 'bold'),
+                bg='#1a1a1a', fg='#888888').grid(row=2, column=0, sticky='w', padx=5, pady=2)
+        self.info_green = tk.Label(info_grid, text="--", font=('Arial', 10),
+                                  bg='#1a1a1a', fg='#ffffff')
+        self.info_green.grid(row=2, column=1, sticky='w', padx=5, pady=2)
+        
+        tk.Label(info_grid, text="Uniformity:", font=('Arial', 9, 'bold'),
+                bg='#1a1a1a', fg='#888888').grid(row=2, column=2, sticky='w', padx=15, pady=2)
+        self.info_uniformity = tk.Label(info_grid, text="--", font=('Arial', 10),
+                                       bg='#1a1a1a', fg='#ffffff')
+        self.info_uniformity.grid(row=2, column=3, sticky='w', padx=5, pady=2)
+        
+        # Row 4: Defects
+        tk.Label(info_grid, text="Total Defects:", font=('Arial', 9, 'bold'),
+                bg='#1a1a1a', fg='#888888').grid(row=3, column=0, sticky='w', padx=5, pady=2)
+        self.info_defects = tk.Label(info_grid, text="--", font=('Arial', 10),
+                                    bg='#1a1a1a', fg='#ff4444')
+        self.info_defects.grid(row=3, column=1, columnspan=3, sticky='w', padx=5, pady=2)
         
         # Detection status (always on - no toggle)
         detection_frame = tk.Frame(video_frame, bg='#1e1e1e')
@@ -1214,8 +1422,94 @@ class LaptopClientGUI:
     def check_and_start_local_camera(self):
         """Start local camera if not connected to Pi"""
         if not self.connected and not self.video_running:
-            self.log("📷 No Pi connection - starting local camera...")
+            self.log("Starting local camera for testing...")
             self.start_local_camera()
+    
+    def update_detection_info(self, result):
+        """Update the detection info panel with real-time data"""
+        try:
+            # Update class
+            class_text = result.get('class', '--')
+            self.info_class.config(text=class_text)
+            
+            # Update confidence
+            confidence = result.get('confidence', 0.0)
+            conf_text = f"{confidence*100:.1f}%"
+            self.info_confidence.config(text=conf_text)
+            
+            # Color code based on confidence
+            if confidence >= DETECTION_THRESHOLD:
+                conf_color = '#00ff00'  # Green
+            elif confidence >= BUYO_CONFIDENCE_MIN:
+                conf_color = '#ffaa00'  # Orange
+            else:
+                conf_color = '#ff4444'  # Red
+            self.info_confidence.config(fg=conf_color)
+            
+            # Update quality and grade
+            quality_score = result.get('quality_score', 0)
+            quality_grade = result.get('quality_grade', 'E')
+            self.info_quality.config(text=f"{quality_score:.1f}/100 {get_quality_stars(quality_score)}")
+            self.info_grade.config(text=f"Grade {quality_grade}")
+            
+            # Grade color
+            grade_colors = {'A': '#00ff00', 'B': '#7fff00', 'C': '#ffaa00', 'D': '#ff6600', 'E': '#ff4444'}
+            self.info_grade.config(fg=grade_colors.get(quality_grade, '#888888'))
+            
+            # Update color analysis
+            color_analysis = result.get('color_analysis')
+            if color_analysis:
+                green_ratio = color_analysis.get('green_ratio', 0)
+                self.info_green.config(text=f"{green_ratio:.1f}%")
+                
+                uniformity = color_analysis.get('uniformity', 0)
+                self.info_uniformity.config(text=f"{uniformity:.1f}%")
+
+                # ── Defect display — prominent with status badge ──────────────
+                total_defects = color_analysis.get('total_defects', 0)
+                yellow  = color_analysis.get('yellow_spots', 0)
+                brown   = color_analysis.get('brown_spots', 0)
+                black   = color_analysis.get('black_spots', 0)
+                status  = color_analysis.get('defect_status', 'NONE')
+                dtypes  = color_analysis.get('defect_types', [])
+
+                # Build defect detail string
+                parts = []
+                if yellow >= 1.5:
+                    parts.append(f"Yellow {yellow:.1f}%")
+                if brown >= 1.5:
+                    parts.append(f"Brown {brown:.1f}%")
+                if black >= 1.0:
+                    parts.append(f"Dark {black:.1f}%")
+                detail = "  |  ".join(parts) if parts else "None detected"
+
+                defect_text = f"[{status}]  Total: {total_defects:.1f}%\n{detail}"
+                self.info_defects.config(text=defect_text)
+
+                # Color-code defect label by severity
+                defect_ui_colors = {
+                    'NONE':     '#00ff00',
+                    'MILD':     '#ffdd00',
+                    'MODERATE': '#ff8800',
+                    'SEVERE':   '#ff2222',
+                }
+                self.info_defects.config(fg=defect_ui_colors.get(status, '#ff4444'))
+            else:
+                self.info_green.config(text="--")
+                self.info_uniformity.config(text="--")
+                self.info_defects.config(text="--")
+        except Exception as e:
+            print(f"Error updating detection info: {e}")
+    
+    def clear_detection_info(self):
+        """Clear the detection info panel when no Buyo detected"""
+        self.info_class.config(text="NO BUYO", fg='#888888')
+        self.info_confidence.config(text="--", fg='#888888')
+        self.info_quality.config(text="--")
+        self.info_grade.config(text="--", fg='#888888')
+        self.info_green.config(text="--")
+        self.info_uniformity.config(text="--")
+        self.info_defects.config(text="--")
     
     def start_local_camera(self):
         """Start video feed from local laptop camera"""
@@ -1301,9 +1595,17 @@ class LaptopClientGUI:
                     # Update detection status based on Buyo detection
                     if result['is_buyo']:
                         if result['detected']:
-                            status_text = f"✓ Detected: {result['class']} ({result['confidence']*100:.1f}%)"
+                            # Include defect status in log
+                            ca = result.get('color_analysis')
+                            defect_info = ""
+                            if ca:
+                                status = ca.get('defect_status', 'NONE')
+                                dtypes = ca.get('defect_types', [])
+                                if status != 'NONE' and dtypes:
+                                    defect_info = f" | ⚠ {status} defect: {', '.join(dtypes)}"
+                            status_text = f"✓ Detected: {result['class']} ({result['confidence']*100:.1f}%){defect_info}"
                             status_color = '#4caf50'
-                            self.log(f"🍃 Buyo leaf detected: {result['class']} ({result['confidence']*100:.1f}%)", 'SUCCESS')
+                            self.log(f"🍃 Buyo leaf: {result['class']} ({result['confidence']*100:.1f}%){defect_info}", 'SUCCESS')
                         else:
                             status_text = f"Buyo Leaf: {result['class']} ({result['confidence']*100:.1f}%)"
                             status_color = '#ffaa00'
@@ -1320,6 +1622,12 @@ class LaptopClientGUI:
                             'class': result['class'],
                             'confidence': result['confidence']
                         }
+                        
+                        # Update detection info panel
+                        self.root.after(0, lambda r=result: self.update_detection_info(r))
+                    else:
+                        # Clear info panel if no Buyo detected
+                        self.root.after(0, lambda: self.clear_detection_info())
                     
                     last_detection_time = current_time
                 
@@ -1518,9 +1826,12 @@ class LaptopClientGUI:
                                     'class': result['class'],
                                     'confidence': result['confidence']
                                 }
-                                # Optional: Auto-trigger arm if configured
-                                # if result['detected']:
-                                #     self.send_command('drop', {'arm': 1, 'class': result['class']})
+                                
+                                # Update detection info panel
+                                self.root.after(0, lambda r=result: self.update_detection_info(r))
+                            else:
+                                # Clear info panel if no Buyo detected
+                                self.root.after(0, lambda: self.clear_detection_info())
                             
                             last_detection_time = current_time
                         
@@ -1656,7 +1967,7 @@ class LaptopClientGUI:
                     
                     self.log(f"  → {pred_class} ({confidence*100:.1f}%) [{img_time*1000:.1f}ms]")
                     
-                    # Store result
+                    # Store result with full analysis
                     results.append({
                         'filepath': filepath,
                         'filename': filename,
@@ -1665,7 +1976,10 @@ class LaptopClientGUI:
                         'probabilities': result.get('probabilities', []),
                         'image': img,
                         'processing_time': img_time,
-                        'is_buyo': result.get('is_buyo', False)
+                        'is_buyo': result.get('is_buyo', False),
+                        'color_analysis': result.get('color_analysis'),
+                        'quality_score': result.get('quality_score', 0),
+                        'quality_grade': result.get('quality_grade', 'E')
                     })
                 
                 # Final update
@@ -1728,15 +2042,31 @@ class LaptopClientGUI:
         threading.Thread(target=save, daemon=True).start()
     
     def show_classification_result(self, filepath, result):
-        """Show classification result in a dialog with enhanced feedback"""
+        """Show classification result in a dialog with enhanced detailed analysis"""
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Classification Result - {os.path.basename(filepath)}")
-        dialog.geometry("700x650")
+        dialog.geometry("800x900")
         dialog.configure(bg='#2b2b2b')
+        
+        # Make scrollable
+        canvas = tk.Canvas(dialog, bg='#2b2b2b', highlightthickness=0)
+        scrollbar = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#2b2b2b')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         
         # Title
         title_text = f"🎯 Classification Result"
-        title_label = tk.Label(dialog, text=title_text,
+        title_label = tk.Label(scrollable_frame, text=title_text,
                               font=('Arial', 16, 'bold'), bg='#2b2b2b', fg='#ffffff')
         title_label.pack(pady=10)
         
@@ -1759,22 +2089,23 @@ class LaptopClientGUI:
             pil_img = Image.fromarray(img_resized)
             img_tk = ImageTk.PhotoImage(image=pil_img)
             
-            img_label = tk.Label(dialog, image=img_tk, bg='#1e1e1e')
+            img_label = tk.Label(scrollable_frame, image=img_tk, bg='#1e1e1e')
             img_label.image = img_tk  # Keep reference
             img_label.pack(pady=10)
         except Exception as e:
             self.log(f"Failed to load image preview: {e}", 'WARNING')
         
-        # Result frame
-        result_frame = tk.Frame(dialog, bg='#1e1e1e', relief=tk.RIDGE, bd=2)
+        # ===== CLASSIFICATION RESULT =====
+        result_frame = tk.LabelFrame(scrollable_frame, text="Classification",
+                                     font=('Arial', 12, 'bold'),
+                                     bg='#1e1e1e', fg='#ffffff', relief=tk.RIDGE, bd=2)
         result_frame.pack(fill=tk.X, padx=20, pady=10)
         
         pred_class = result['class']
         confidence = result['confidence']
-        is_buyo = result.get('is_buyo', True)  # Default to True if not specified
+        is_buyo = result.get('is_buyo', True)
         
         # Determine display based on confidence
-        # Always show the predicted class unless it's explicitly "NO GREEN"
         if pred_class == 'NO GREEN':
             display_class = "NO BUYO"
             display_color = '#888888'
@@ -1782,76 +2113,108 @@ class LaptopClientGUI:
         elif confidence >= DETECTION_THRESHOLD:
             display_class = pred_class
             display_color = '#4caf50'
-            status_msg = f"High Confidence - Buyo leaf: {pred_class}"
+            status_msg = f"High Confidence Detection"
         elif confidence >= 0.30:
             display_class = pred_class
             display_color = '#ffaa00'
-            status_msg = f"Medium Confidence - Likely: {pred_class}"
+            status_msg = f"Medium Confidence Detection"
         else:
             display_class = pred_class
             display_color = '#ff8888'
-            status_msg = f"Low Confidence - Uncertain: {pred_class}"
+            status_msg = f"Low Confidence Detection"
         
         # Status message
         status_label = tk.Label(result_frame, text=status_msg,
-                               font=('Arial', 10), bg='#1e1e1e', fg='#ffffff',
-                               wraplength=600)
+                               font=('Arial', 10), bg='#1e1e1e', fg='#ffffff')
         status_label.pack(pady=5)
         
-        # Predicted class
-        class_label = tk.Label(result_frame, text=f"Predicted Class: {display_class}",
-                              font=('Arial', 14, 'bold'), bg='#1e1e1e', fg=display_color)
+        # Predicted class (large)
+        class_label = tk.Label(result_frame, text=f"{display_class}",
+                              font=('Arial', 18, 'bold'), bg='#1e1e1e', fg=display_color)
         class_label.pack(pady=5)
         
         # Confidence
         conf_label = tk.Label(result_frame, text=f"Confidence: {confidence*100:.2f}%",
-                             font=('Arial', 12), bg='#1e1e1e', fg='#ffffff')
+                             font=('Arial', 14, 'bold'), bg='#1e1e1e', fg='#ffffff')
         conf_label.pack(pady=5)
         
-        # Confidence interpretation
-        if confidence >= 0.70:
-            interp = "Very High - Strong detection"
-        elif confidence >= 0.50:
-            interp = "High - Good detection"
-        elif confidence >= 0.30:
-            interp = "Medium - Uncertain"
-        else:
-            interp = "Low - Weak detection"
+        # ===== QUALITY ANALYSIS =====
+        color_analysis = result.get('color_analysis')
+        quality_score = result.get('quality_score', 0)
+        quality_grade = result.get('quality_grade', 'E')
         
-        interp_label = tk.Label(result_frame, text=f"Interpretation: {interp}",
-                               font=('Arial', 9), bg='#1e1e1e', fg='#888888')
-        interp_label.pack(pady=2)
-        
-        # Probability bars
-        if 'probabilities' in result:
-            probs_frame = tk.Frame(result_frame, bg='#1e1e1e')
-            probs_frame.pack(pady=10)
+        if color_analysis and is_buyo:
+            quality_frame = tk.LabelFrame(scrollable_frame, text="Quality Analysis",
+                                         font=('Arial', 12, 'bold'),
+                                         bg='#1e1e1e', fg='#ffffff', relief=tk.RIDGE, bd=2)
+            quality_frame.pack(fill=tk.X, padx=20, pady=10)
             
-            tk.Label(probs_frame, text="All Class Probabilities:",
-                    font=('Arial', 10, 'bold'), bg='#1e1e1e', fg='#ffffff').pack()
+            # Quality score and grade
+            quality_grid = tk.Frame(quality_frame, bg='#1e1e1e')
+            quality_grid.pack(padx=10, pady=10)
+            
+            tk.Label(quality_grid, text="Quality Score:", font=('Arial', 10, 'bold'),
+                    bg='#1e1e1e', fg='#888888').grid(row=0, column=0, sticky='w', padx=5, pady=5)
+            tk.Label(quality_grid, text=f"{quality_score:.1f}/100 {get_quality_stars(quality_score)}",
+                    font=('Arial', 11, 'bold'), bg='#1e1e1e', fg='#ffaa00').grid(row=0, column=1, sticky='w', padx=5, pady=5)
+            
+            tk.Label(quality_grid, text="Grade:", font=('Arial', 10, 'bold'),
+                    bg='#1e1e1e', fg='#888888').grid(row=0, column=2, sticky='w', padx=15, pady=5)
+            grade_colors = {'A': '#00ff00', 'B': '#7fff00', 'C': '#ffaa00', 'D': '#ff6600', 'E': '#ff4444'}
+            tk.Label(quality_grid, text=f"Grade {quality_grade}",
+                    font=('Arial', 11, 'bold'), bg='#1e1e1e',
+                    fg=grade_colors.get(quality_grade, '#888888')).grid(row=0, column=3, sticky='w', padx=5, pady=5)
+            
+            # Color health
+            tk.Label(quality_grid, text="Green Content:", font=('Arial', 10, 'bold'),
+                    bg='#1e1e1e', fg='#888888').grid(row=1, column=0, sticky='w', padx=5, pady=5)
+            tk.Label(quality_grid, text=f"{color_analysis['green_ratio']:.1f}%",
+                    font=('Arial', 10), bg='#1e1e1e', fg='#ffffff').grid(row=1, column=1, sticky='w', padx=5, pady=5)
+            
+            tk.Label(quality_grid, text="Uniformity:", font=('Arial', 10, 'bold'),
+                    bg='#1e1e1e', fg='#888888').grid(row=1, column=2, sticky='w', padx=15, pady=5)
+            tk.Label(quality_grid, text=f"{color_analysis['uniformity']:.1f}%",
+                    font=('Arial', 10), bg='#1e1e1e', fg='#ffffff').grid(row=1, column=3, sticky='w', padx=5, pady=5)
+            
+            # Defects
+            tk.Label(quality_grid, text="Total Defects:", font=('Arial', 10, 'bold'),
+                    bg='#1e1e1e', fg='#888888').grid(row=2, column=0, sticky='w', padx=5, pady=5)
+            defect_text = f"{color_analysis['total_defects']:.1f}% (Y:{color_analysis['yellow_spots']:.1f}% B:{color_analysis['brown_spots']:.1f}% BL:{color_analysis['black_spots']:.1f}%)"
+            tk.Label(quality_grid, text=defect_text,
+                    font=('Arial', 10), bg='#1e1e1e', fg='#ff4444').grid(row=2, column=1, columnspan=3, sticky='w', padx=5, pady=5)
+        
+        # ===== ALL CLASS PROBABILITIES =====
+        if 'probabilities' in result:
+            probs_frame = tk.LabelFrame(scrollable_frame, text="All Class Probabilities",
+                                       font=('Arial', 12, 'bold'),
+                                       bg='#1e1e1e', fg='#ffffff', relief=tk.RIDGE, bd=2)
+            probs_frame.pack(fill=tk.X, padx=20, pady=10)
+            
+            probs_content = tk.Frame(probs_frame, bg='#1e1e1e')
+            probs_content.pack(padx=10, pady=10)
             
             for i, cls in enumerate(CLASS_NAMES):
                 prob = result['probabilities'][i]
                 
-                bar_frame = tk.Frame(probs_frame, bg='#1e1e1e')
-                bar_frame.pack(fill=tk.X, pady=2)
+                bar_frame = tk.Frame(probs_content, bg='#1e1e1e')
+                bar_frame.pack(fill=tk.X, pady=3)
                 
                 tk.Label(bar_frame, text=f"{cls}:", width=10,
-                        font=('Arial', 9), bg='#1e1e1e', fg='#ffffff', anchor='w').pack(side=tk.LEFT)
+                        font=('Arial', 10, 'bold'), bg='#1e1e1e', fg='#ffffff', anchor='w').pack(side=tk.LEFT)
                 
-                canvas = tk.Canvas(bar_frame, width=300, height=20, bg='#2b2b2b', highlightthickness=0)
-                canvas.pack(side=tk.LEFT, padx=5)
+                canvas_bar = tk.Canvas(bar_frame, width=400, height=24, bg='#2b2b2b', highlightthickness=0)
+                canvas_bar.pack(side=tk.LEFT, padx=5)
                 
-                bar_width = int(280 * prob)
+                bar_width = int(390 * prob)
                 bar_color = display_color if i == result.get('class_idx', -1) else '#555555'
-                canvas.create_rectangle(2, 2, bar_width + 2, 18, fill=bar_color, outline='')
+                canvas_bar.create_rectangle(2, 2, bar_width + 2, 22, fill=bar_color, outline='')
                 
-                tk.Label(bar_frame, text=f"{prob*100:.1f}%",
-                        font=('Arial', 9), bg='#1e1e1e', fg='#ffffff').pack(side=tk.LEFT)
+                tk.Label(bar_frame, text=f"{prob*100:.2f}%", width=8,
+                        font=('Arial', 10), bg='#1e1e1e', fg='#ffffff').pack(side=tk.LEFT)
         
         # Buttons
-        btn_frame = tk.Frame(dialog, bg='#2b2b2b')
-        btn_frame.pack(pady=10)
+        btn_frame = tk.Frame(scrollable_frame, bg='#2b2b2b')
+        btn_frame.pack(pady=20)
         
         tk.Button(btn_frame, text="✓ Close", command=dialog.destroy,
                  font=('Arial', 10, 'bold'), bg='#4a90e2', fg='white',
@@ -2052,17 +2415,40 @@ class LaptopClientGUI:
             except:
                 pass
             
-            # Class label
+            # Class label with quality info
             class_color = '#4caf50' if item['confidence'] > 0.6 else '#ffaa00' if item['confidence'] > 0.4 else '#ff4444'
+            class_text = f"{item['class']}\n{item['confidence']*100:.1f}%"
+            
+            # Add quality grade if available
+            if item.get('quality_grade') and item['is_buyo']:
+                class_text += f"\nGrade: {item['quality_grade']}"
+            
             class_label = tk.Label(item_frame, 
-                                   text=f"{item['class']}\n{item['confidence']*100:.1f}%",
+                                   text=class_text,
                                    font=('Arial', 10, 'bold'), bg='#1e1e1e', fg=class_color)
             class_label.pack(pady=2)
             
-            # Filename
+            # Quality score if available
+            if item.get('quality_score') and item['is_buyo']:
+                quality_text = f"Q: {item['quality_score']:.0f}/100"
+                quality_label = tk.Label(item_frame, text=quality_text,
+                                        font=('Arial', 8), bg='#1e1e1e', fg='#ffaa00')
+                quality_label.pack(pady=1)
+            
+            # Filename (clickable to see details)
             filename_label = tk.Label(item_frame, text=item['filename'][:25], 
-                                     font=('Arial', 8), bg='#1e1e1e', fg='#888888')
+                                     font=('Arial', 8), bg='#1e1e1e', fg='#888888',
+                                     cursor='hand2')
             filename_label.pack(pady=2)
+            
+            # Make entire frame clickable to show detailed result
+            def show_detail(item=item):
+                self.show_batch_item_detail(item)
+            
+            item_frame.bind('<Button-1>', lambda e, i=item: show_detail(i))
+            img_label.bind('<Button-1>', lambda e, i=item: show_detail(i))
+            class_label.bind('<Button-1>', lambda e, i=item: show_detail(i))
+            filename_label.bind('<Button-1>', lambda e, i=item: show_detail(i))
         
         canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         scrollbar.pack(side="right", fill="y")
@@ -2131,6 +2517,23 @@ class LaptopClientGUI:
         tk.Button(btn_frame, text="📊 Export to CSV", command=export_csv,
                  font=('Arial', 10), bg='#ff9800', fg='white',
                  padx=20, pady=10).pack(side=tk.LEFT, padx=5)
+    
+    def show_batch_item_detail(self, item):
+        """Show detailed analysis for a single batch item"""
+        # Convert item dict to result format expected by show_classification_result
+        result = {
+            'class': item['class'],
+            'confidence': item['confidence'],
+            'probabilities': item['probabilities'],
+            'class_idx': CLASS_NAMES.index(item['class']) if item['class'] in CLASS_NAMES else -1,
+            'is_buyo': item.get('is_buyo', False),
+            'color_analysis': item.get('color_analysis'),
+            'quality_score': item.get('quality_score', 0),
+            'quality_grade': item.get('quality_grade', 'E')
+        }
+        
+        # Show the detailed result dialog
+        self.show_classification_result(item['filepath'], result)
     
     def send_command(self, action, params=None):
         """Send command to Raspberry Pi with cooldown"""
